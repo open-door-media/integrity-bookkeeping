@@ -1,0 +1,53 @@
+{
+  "name": "integrity-bookkeeping",
+  "version": "1.3.0",
+  "description": "Bookkeeping app for Integrity Estate Liquidation",
+  "author": "Open Door Media",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "build": {
+    "appId": "com.integrityelc.bookkeeping",
+    "productName": "Integrity Bookkeeping",
+    "files": [
+      "app.html",
+      "main.js",
+      "preload.js",
+      "db.js",
+      "assets/**/*"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "open-door-media",
+      "repo": "integrity-bookkeeping"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/app_icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "installerLanguages": [
+        "en_US"
+      ],
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.icns"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "nodemailer": "^9.0.4"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}

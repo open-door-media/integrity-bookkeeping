@@ -4597,13 +4597,18 @@ window.handleLogoUpload = async input => {
     reader.onload=async e=>{
       const path=await window.electronAPI.saveLogo(e.target.result, file.name);
       S.settings.logoPath=path;
+      DB.saveSettings(S.settings,{nextCN:S.nextCN,nextEmpId:S.nextEmpId,nextTaskId:S.nextTaskId});
       if(S.view==='settings') renderPage();
     };
     reader.readAsDataURL(file);
   } else {
-    // Fallback: store base64 in memory
+    // Fallback: store base64 in memory and persist to DB
     const reader=new FileReader();
-    reader.onload=e=>{ S.settings.logoPath=e.target.result; if(S.view==='settings') renderPage(); };
+    reader.onload=e=>{
+      S.settings.logoPath=e.target.result;
+      DB.saveSettings(S.settings,{nextCN:S.nextCN,nextEmpId:S.nextEmpId,nextTaskId:S.nextTaskId});
+      if(S.view==='settings') renderPage();
+    };
     reader.readAsDataURL(file);
   }
 };
@@ -6260,8 +6265,8 @@ window.openInvoice = (cid, existingInvoiceId, forceEdit=false) => {
         if(dpAmt > 0) sub.push(fmt(dpAmt)+' paid');
         addLine({desc:'Base fee'+(c.dpPaid?' — remaining balance':''),sub:sub.join(' · '),qty:'',amount:balance,type:balance>=0?'debit':'credit',badge:dpAmt>0?'dp':null,source:'flat_rate',locked:false});
       }
-      // Separate invoice mode: consignment fee as its own line
-      if(_consMode === 'separate_invoice' && _consFee > 0 && uninvoiced(c.consignmentFeeInvStatus)){
+      // Separate or combined-fallback: consignment fee as its own line (anything other than deferred goes on invoice)
+      if(_consMode !== 'deferred' && _consFee > 0 && uninvoiced(c.consignmentFeeInvStatus)){
         const dpAmt = c.dpPaid ? _consFee * flatPct : 0;
         const balance = _consFee - dpAmt;
         const sub = [fmt(_consFee)+' quoted'];

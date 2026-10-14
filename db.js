@@ -35,6 +35,9 @@ const DB = (() => {
 
   // ── Mapping helpers ───────────────────────────────────────────────────────
 
+  let _lotCols = false; // true once a loaded client row shows the lot_* columns exist
+  function lotColsReady() { return _lotCols; }
+
   function clientToRow(c) {
     return {
       id: c.id,
@@ -74,6 +77,9 @@ const DB = (() => {
       // entry_details (garage codes, keybox, key color…) is only sent once the column exists or has a value,
       // so every other client save keeps working until the column has been added in Supabase
       ...((c.entryDetails || c._hasEntryCol) ? { entry_details: c.entryDetails || '' } : {}),
+      // Consignment lot tracking (where the stuff is stored, since when, whether it's in a sale). Only sent once the
+      // lot_* columns exist in Supabase (seen on a loaded client row), so saves keep working before the migration is run.
+      ...(_lotCols ? { lot_location: c.lotLocation || '', lot_stored_date: c.lotStoredDate || null, lot_in_sale: !!c.lotInSale } : {}),
       status: c.status || 'agreement',
       flat_rate: c.flatRate || 0,
       flat_rate_inv_status: c.flatRateInvStatus || 'uninvoiced',
@@ -111,6 +117,7 @@ const DB = (() => {
   }
 
   function rowToClient(row) {
+    if ('lot_location' in row) _lotCols = true;
     return {
       id: row.id,
       num: row.num,
@@ -148,6 +155,9 @@ const DB = (() => {
       notes: row.notes,
       entryDetails: row.entry_details || '',
       _hasEntryCol: 'entry_details' in row,
+      lotLocation: row.lot_location || '',
+      lotStoredDate: row.lot_stored_date || '',
+      lotInSale: !!row.lot_in_sale,
       status: row.status,
       flatRate: row.flat_rate,
       flatRateInvStatus: row.flat_rate_inv_status,
@@ -1380,6 +1390,7 @@ const DB = (() => {
     wroteClientRecently,
     init,
     isReady,
+    lotColsReady,
     loadAll,
     isEmpty,
     importFromState,

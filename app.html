@@ -481,6 +481,9 @@ body.glass::after{width:64vw;height:64vh;right:-14vw;bottom:-20vh;background:rad
 .glass .sec .sh:hover{background:rgba(60,40,70,.03)}
 .glass .sec .sh[style*="cursor:default"]:hover{background:transparent}
 .glass .sec .sb2{border-top:1px solid rgba(60,40,70,.07)}
+/* Cards nested inside a section card (Labor page tables, stat tiles, employee tiles): a bordered inset, not a second full-width card */
+.lbpage .sec .sb2 .card,.mlpage .sec .sb2 .card{border:1px solid var(--bd);border-radius:var(--r2)}
+.glass .lbpage .sec .sb2 .card,.glass .mlpage .sec .sb2 .card{border:1px solid rgba(60,40,70,.09);border-radius:14px;background:rgba(255,255,255,.6);box-shadow:none}
 .glass .sec.cur>.sh{background:rgba(103,43,132,.04);box-shadow:inset 3px 0 0 var(--p3)}
 .glass .sec.cur>.sb2{box-shadow:inset 3px 0 0 rgba(139,68,173,.18)}
 
@@ -491,6 +494,8 @@ body.glass::after{width:64vw;height:64vh;right:-14vw;bottom:-20vh;background:rad
   border:1px solid rgba(255,255,255,.95)!important;border-radius:22px!important;
   box-shadow:0 6px 22px rgba(40,25,50,.07),0 1px 2px rgba(40,25,50,.04)!important;
 }
+/* #clist now sits inside a section card: don't double the card chrome */
+.glass .sec #clist,.glass .sec #ldlist{background:transparent!important;border:1px solid rgba(60,40,70,.07)!important;border-radius:14px!important;box-shadow:none!important}
 .glass .ci{background:transparent;border-bottom:1px solid rgba(60,40,70,.07)}
 .glass .ci:last-child{border-bottom:none}
 .glass .ci:hover{background:rgba(103,43,132,.045)}
@@ -1538,11 +1543,30 @@ function _flyLeadRowsHtml(){
 }
 function _flyLeadHeaderHtml(P='fly'){
   return `
-    <div class="t" style="display:flex;justify-content:space-between;align-items:baseline"><span>Leads</span><span id="${P}_count" style="font-weight:500;text-transform:none;letter-spacing:0"></span></div>
-    <div class="sw">${IC.search}<input class="fi si" id="${P}_q" placeholder="Search name, address, phone, notes…" value="${esc(_ldQ)}" oninput="_ldQ=this.value;_ldRefreshList()"></div>
+    <div class="sw" style="margin-top:4px">${IC.search}<input class="fi si" id="${P}_q" placeholder="Search name, address, phone, notes…" value="${esc(_ldQ)}" oninput="_ldQ=this.value;_ldRefreshList()"></div>
     <div class="fly-row"><span class="lb">STATUS</span><div class="pls g3">${[['active','Active'],['inactive','Inactive'],['all','All']].map(([k,lb])=>`<span id="${P}_lf_${k}" class="bdg qfpill off" onclick="setLeadFilter('${k}')">${lb}</span>`).join('')}</div></div>
     <div class="fly-row"><span class="lb">SORT</span><div class="pls g3">${[['newest','Newest'],['name','Name']].map(([k,lb])=>`<button id="${P}_ls_${k}" class="btn btn-xs btn-g" onclick="setLeadSort('${k}')">${lb}</button>`).join('')}</div></div>`;
 }
+// Clients / Leads panel in the Labor / Mileage style: icon rows for the sections (clicking one jumps to that
+// card on the page), with the search + filter + sort controls sitting under the "Search & Filter" row.
+function _flyListPanelHtml(kind,P,withHd){
+  const isL=kind==='leads', isI=kind==='invoices', label=isL?'Leads':isI?'Invoices':'Clients';
+  const more=isL?'':`<button id="${P}_more_btn" class="btn btn-xs btn-g" style="font-weight:500" onclick="event.stopPropagation();flyToggleMore('${P}')">More ▾</button>`;
+  return (withHd?`<div class="sbn-hd"><div class="t">${label}</div><div class="s">Quick list</div></div>`:'')
+    +`<div class="sbn-i" style="margin-top:${withHd?0:4}px" onclick="flySecGo('${kind}','filter')">${IC.search}<span style="min-width:0;flex:1">Search &amp; Filter</span>${more}</div>`
+    +`<div class="fly-hd${isI?' ns':''}">${isL?_flyLeadHeaderHtml(P):isI?_flyInvHeaderHtml(P):_flyHeaderHtml(P)}</div>`
+    +`<div class="sbn-i" onclick="flySecGo('${kind}','list')">${isL?IC.user:isI?IC.invoice:IC.users}<span style="min-width:0;flex:1">${label}</span><span id="${P}_count" style="font-size:11px;font-weight:500;color:var(--t3)"></span></div>`
+    +`<div class="fly-list" id="${P}_list"></div>`;
+}
+// Jump to a card on the Clients / Leads page: 'filter' (Search & Filter) or 'list'
+window.flySecGo=(kind,key)=>{
+  _hoverKind=''; clearTimeout(_flyT);
+  if(S.view!==kind){ nav(kind); setTimeout(()=>flySecGo(kind,key),80); return; }
+  const ct=document.getElementById('content'), el=ct.querySelector('[data-anchor="fl_'+key+'"]'); if(!el) return;
+  const top=el.getBoundingClientRect().top-ct.getBoundingClientRect().top+ct.scrollTop-14;
+  _sbnLockUntil=Date.now()+650;
+  ct.scrollTo({top:Math.max(0,top),behavior:'smooth'});
+};
 window.flyOpenLead=id=>{ _sbnMode='sections'; _hoverKind=''; clearTimeout(_flyT); openLead(id); };
 
 // Invoices versions of the same list panel (same state as the Invoices page: _invQ / _invStatuses / _invSort ...)
@@ -1572,8 +1596,7 @@ function _invDot(st){
 }
 function _flyInvHeaderHtml(P='fly'){
   return `
-    <div class="t" style="display:flex;justify-content:space-between;align-items:baseline"><span>Invoices</span><span style="display:flex;align-items:center;gap:8px"><span id="${P}_count" style="font-weight:500;text-transform:none;letter-spacing:0"></span><button id="${P}_more_btn" class="btn btn-xs btn-g" style="text-transform:none;letter-spacing:0;font-weight:500" onclick="flyToggleMore('${P}')">More ▾</button></span></div>
-    <div class="sw">${IC.search}<input class="fi si" id="${P}_q" placeholder="Search client, invoice #, amount, check #…" value="${esc(_invQ)}" oninput="_invQ=this.value;_applyInvFilter()"></div>
+    <div class="sw" style="margin-top:4px">${IC.search}<input class="fi si" id="${P}_q" placeholder="Search client, invoice #, amount, check #…" value="${esc(_invQ)}" oninput="_invQ=this.value;_applyInvFilter()"></div>
     <div class="fly-row"><span class="lb">STATUS</span><div class="pls g4">${['unpaid','partial','overpaid','paid'].map(s=>`<span id="${P}_is_${s}" class="bdg qfpill off" onclick="toggleInvStatus('${s}')" title="Click: show only · again: hide · again: off">${cap(s)}</span>`).join('')}</div></div>
     <div class="fly-row"><span class="lb">SORT</span><div class="pls g3">${_INV_SORTS.map(([k,lb])=>`<button id="${P}_iso_${k}" class="btn btn-xs btn-g" onclick="toggleInvSort('${k}')">${lb}<span class="sdir"></span></button>`).join('')}</div></div>
     <div id="${P}_more" class="fly-more${_flyMoreOpen[P]?' open':''}">
@@ -1643,8 +1666,7 @@ function _flyHeaderHtml(P='fly'){
     return `<div class="rg"><span style="min-width:62px">${label}</span>${inp(a,RVAL[a])}<span>–</span>${inp(b,RVAL[b])}</div>`;
   };
   return `
-    <div class="t" style="display:flex;justify-content:space-between;align-items:baseline"><span>Clients</span><span style="display:flex;align-items:center;gap:8px"><span id="${P}_count" style="font-weight:500;text-transform:none;letter-spacing:0"></span><button id="${P}_more_btn" class="btn btn-xs btn-g" style="text-transform:none;letter-spacing:0;font-weight:500" onclick="flyToggleMore('${P}')">More ▾</button></span></div>
-    <div class="sw">${IC.search}<input class="fi si" id="${P}_q" placeholder="Search name, phone, amount, notes…" value="${esc(_clQ)}" oninput="_clQ=this.value;_applyClientFilters()"></div>
+    <div class="sw" style="margin-top:4px">${IC.search}<input class="fi si" id="${P}_q" placeholder="Search name, phone, amount, notes…" value="${esc(_clQ)}" oninput="_clQ=this.value;_applyClientFilters()"></div>
     <div class="fly-row"><span class="lb">STATUS</span><div class="pls g3">${CL_STATUSES.map(st=>`<span id="${P}_sp_${st}" class="bdg bdg-${st}" onclick="toggleCStatus('${st}')" title="Click: show only · again: hide · again: off">${stLbl(st)}</span>`).join('')}</div></div>
     <div class="fly-row"><span class="lb">ONLY</span><div class="pls g4">${_FLY_QUICK.map(([k,lb])=>`<span id="${P}_qf_${k}" class="bdg qfpill off" onclick="toggleCQuick('${k}')">${lb}</span>`).join('')}</div></div>
     <div class="fly-row"><span class="lb">SORT</span><div class="pls g3">${_FLY_SORTS.map(([k,lb])=>`<button id="${P}_so_${k}" class="btn btn-xs btn-g" onclick="toggleCSort('${k}')">${lb}<span class="sdir"></span></button>`).join('')}</div></div>
@@ -1841,7 +1863,7 @@ function renderSubbar(){
       _sblKind=listKind;
       if(changed||!document.getElementById('sbl_list')){
         inner0.className='subbar-in'; inner0.dataset.dock=listKind;
-        inner0.innerHTML=`<div class="fly-hd${listKind==='invoices'?' ns':''}">${listKind==='leads'?_flyLeadHeaderHtml('sbl'):listKind==='invoices'?_flyInvHeaderHtml('sbl'):_flyHeaderHtml('sbl')}</div><div class="fly-list" id="sbl_list"></div>`;
+        inner0.innerHTML=_flyListPanelHtml(listKind,'sbl',true);
       }
       _flyRender();
     }
@@ -1884,7 +1906,7 @@ function renderSubbar(){
       const nm=isLead?(_ldGet(S.openLead)?.name||'Lead'):(gc()?.name||'Client');
       _sbnWasList=true;
       inner.className='subbar-in';
-      inner.innerHTML=`<div class="sbn-hd sbn-hd-fwd"><div class="sbn-back fwd" onclick="sbnShowSections()" title="Back to this ${isLead?'lead':'client'}'s sections"><span class="nm">${esc(nm)}</span> →</div></div><div class="fly-hd">${isLead?_flyLeadHeaderHtml('sbl'):_flyHeaderHtml('sbl')}</div><div class="fly-list" id="sbl_list"></div>`;
+      inner.innerHTML=`<div class="sbn-hd sbn-hd-fwd"><div class="sbn-back fwd" onclick="sbnShowSections()" title="Back to this ${isLead?'lead':'client'}'s sections"><span class="nm">${esc(nm)}</span> →</div></div>`+_flyListPanelHtml(isLead?'leads':'clients','sbl',false);
     }
     _flyRender(); _sbnSpy(); return;
   }
@@ -2123,36 +2145,40 @@ function toggleSec(key){
 function mkDash(){
   const d=document.createElement('div');
   const ot=S.tasks.filter(t=>!t.done);
+  const leadTasks=_ldTaskRows();            // each active lead's Next Task, same as the Tasks page
+  const otTotal=ot.length+leadTasks.length;
   const ac=S.clients.filter(c=>c.status!=='archived').sort((a,b)=>(b.startDate||'').localeCompare(a.startDate||''));
   const tOwed=ac.reduce((s,c)=>s+Math.max(0,calcOwed(c)),0);
   const tProfit=ac.reduce((s,c)=>s+calcProfit(c),0);
-  d.innerHTML=`
-    <div class="g4" style="margin-bottom:18px">
+  const secCard=(icon,label,body,acts,style)=>`<div class="sec"${style?` style="${style}"`:''}><div class="sh open" style="cursor:default"><div class="st">${icon}${label}</div>${acts?`<div style="display:flex;gap:6px">${acts}</div>`:''}</div><div class="sb2">${body}</div></div>`;
+  const statsBody=`
+    <div class="g4">
       <div class="mc"><div class="ml">Active Jobs</div><div class="mv">${ac.filter(c=>c.status==='active').length}</div><div class="ms">of ${ac.length} clients</div></div>
       <div class="mc"><div class="ml">Outstanding</div><div class="mv" style="color:var(--ok)">${fmt(tOwed)}</div><div class="ms">owed to Kevin</div></div>
-      <div class="mc"><div class="ml">Open Tasks</div><div class="mv" style="color:var(--warn)">${ot.length}</div><div class="ms">need attention</div></div>
+      <div class="mc"><div class="ml">Open Tasks</div><div class="mv" style="color:var(--warn)">${otTotal}</div><div class="ms">need attention</div></div>
       <div class="mc"><div class="ml">Est. Profit</div><div class="mv">${fmt(tProfit)}</div><div class="ms">all active jobs</div></div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
-      <div class="card">
-        <div class="ch"><div class="ct2">Open Tasks</div><button class="btn btn-g btn-sm" onclick="nav('tasks')">View all</button></div>
-        ${ot.length===0?'<div style="color:var(--t3);font-size:13px;padding:4px 0">All clear — no open tasks.</div>':''}
+    </div>`;
+  const tasksBody=`
+        ${otTotal===0?'<div style="color:var(--t3);font-size:13px;padding:4px 0">All clear — no open tasks.</div>':''}
         ${ot.slice(0,5).map(t=>`<div class="ti">
           <div class="tc" onclick="taskChk(${t.id})"></div>
           <div style="flex:1"><div style="font-size:13px">${esc(t.text)}</div>
           <div style="font-size:11px;color:var(--t3);margin-top:1px">${t.listId?`<span style="color:var(--p3)">${esc((S.taskLists||[]).find(l=>String(l.id)===String(t.listId))?.name||'')}</span>`:''}</div></div>
         </div>`).join('')}
-      </div>
-      <div class="card">
-        <div class="ch"><div class="ct2">Clients</div><div style="display:flex;gap:6px"><button class="btn btn-p btn-sm" onclick="addClient()">${IC.plus} New</button><button class="btn btn-g btn-sm" onclick="nav('clients')">All</button></div></div>
+        ${leadTasks.slice(0,Math.max(0,5-ot.length)).map(l=>ltRow(l)).join('')}
+        ${otTotal>5?`<div style="font-size:11px;color:var(--t3);padding:6px 0 0">+ ${otTotal-5} more on the Tasks page</div>`:''}`;
+  const clientsBody=`
         ${ac.length===0?`<div style="color:var(--t3);font-size:13px;padding:4px 0">No clients yet — use the New button above to get started.</div>`:''}
         ${ac.slice(0,4).map(c=>`<div class="ci" style="margin-bottom:7px;padding:9px 11px" onclick="openClient(${c.id})">
           <div class="cn">${c.num}</div>
           <div style="flex:1"><div style="font-weight:600;font-size:13px">${esc(c.name||'Unnamed')}</div><div style="font-size:11px;color:var(--t3)">${esc(c.address||'No address')}</div></div>
           <span class="bdg bdg-${c.status}">${stLbl(c.status)}</span>
-        </div>`).join('')}
-      </div>
-    </div>`;
+        </div>`).join('')}`;
+  d.innerHTML=secCard(IC.dash,'Overview',statsBody)
+    +`<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 18px;align-items:start">`
+    +secCard(IC.tasks,'Open Tasks',tasksBody,`<button class="btn btn-g btn-sm" onclick="nav('tasks')">View all</button>`)
+    +secCard(IC.users,'Clients',clientsBody,`<button class="btn btn-p btn-sm" onclick="addClient()">${IC.plus} New</button><button class="btn btn-g btn-sm" onclick="nav('clients')">All</button>`)
+    +`</div>`;
   return d;
 }
 
@@ -2226,7 +2252,7 @@ function _clSearchIndex(c){
     c.contact3, c.phone3, c.email3,
     c.billTo, c.billAddr1, c.billAddr2, c.billCity, c.billState, c.billZip, c.billPhone, c.billEmail,
     c.payableTo, c.payableAddr1, c.payableCity, c.payableState, c.payableZip, c.payablePhone, c.payableEmail,
-    c.startDate, c.dpDate, c.dpCheck, c.notes, c.entryDetails,
+    c.startDate, c.dpDate, c.dpCheck, c.notes, c.entryDetails, c.lotLocation,
     fmtN(owed), fmtN(dp), fmtN(ct),
     ...(c.fees||[]).map(f=>f.name+' '+fmtN(f.amount)),
     ...(c.costAdjustments||[]).map(a=>a.desc+' '+fmtN(a.amount)),
@@ -2327,8 +2353,9 @@ function mkClientList(){
   const d=document.createElement('div');
   const ac=S.clients.filter(c=>c.status!=='archived');
   const sortBtns=[['num','#'],['name','Name'],['status','Status'],['owed','Owed'],['total','Total'],['date','Start']];
-  d.innerHTML=`
-    <div style="margin-bottom:12px">
+  const secCard=(icon,label,body,anchor)=>`<div class="sec" data-anchor="${anchor}"><div class="sh open" style="cursor:default"><div class="st">${icon}${label}</div></div><div class="sb2">${body}</div></div>`;
+  const filterBody=`
+    <div>
       <div style="display:flex;gap:8px;margin-bottom:10px">
         <div class="sw" style="flex:1">${IC.search}<input class="fi si" id="clist_search" placeholder="Search name, phone, amount, notes…" oninput="_clQ=this.value;_applyClientFilters();document.getElementById('clist_clear').style.display=this.value?'':'none'" value="${esc(_clQ)}"></div>
         <button id="clist_clear" class="btn btn-g btn-sm" style="display:${_clQ?'':'none'}" onclick="document.getElementById('clist_search').value='';_clQ='';_applyClientFilters();this.style.display='none'">Clear</button>
@@ -2388,10 +2415,12 @@ function mkClientList(){
         <button class="btn btn-g btn-sm" onclick="_clDateFrom='';_clDateTo='';_clOwedMin='';_clOwedMax='';_clProfitMin='';_clProfitMax='';['clr_df','clr_dt','clr_om','clr_ox','clr_pm','clr_px'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});_applyClientFilters()">Clear ranges</button>
       </div>
       <div style="font-size:11px;color:var(--t3);margin-top:8px" id="clist_count"></div>
-    </div>
+    </div>`;
+  const listBody=`
     <div id="clist" style="display:flex;flex-direction:column;gap:0;border-radius:var(--r2);overflow:hidden;border:1px solid var(--bd)">
     </div>
     <div class="ga" onclick="addClient()" style="margin-top:10px">${IC.plus} Add new client</div>`;
+  d.innerHTML=secCard(IC.search,'Search &amp; Filter',filterBody,'fl_filter')+secCard(IC.users,'Clients',listBody,'fl_list');
   // render initial list
   setTimeout(_applyClientFilters,0);
   return d;
@@ -3793,7 +3822,33 @@ function mkConsLaborCard(c){
   </div>`;
 }
 
-function mkConsignment(c){
+// Lot tracking (pre-financials): where this client's consignment stuff is, since when, and whether it's in a sale.
+// Stored on the client row (lot_location / lot_stored_date / lot_in_sale). Shows a setup note until those columns exist.
+function mkLotTracker(c){
+  const head=`<div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--p1);margin-bottom:8px">Lot location</div>`;
+  const box=inner=>`<div style="background:var(--p6);border-radius:var(--r2);padding:12px 14px;margin-bottom:14px">${head}${inner}</div>`;
+  if(!DB.lotColsReady()) return box(`<div style="font-size:12px;color:var(--t2)">Lot tracking needs a one-time database update (3 new columns on <b>clients</b>). Once it's been run, reload the app and the location fields will appear here.</div>`);
+  const loc=(c.lotLocation||'').trim(), since=c.lotStoredDate||'';
+  const days=since?Math.max(0,Math.floor((new Date(td()+'T12:00:00')-new Date(since+'T12:00:00'))/86400000)):null;
+  const ageTxt=days==null?'':days===0?'today':days===1?'1 day':days+' days';
+  const status=!loc&&!c.lotInSale?'<span style="color:var(--t3)">No location set yet</span>'
+    :`${c.lotInSale?'<b style="color:var(--warn)">In a sale now</b>':'<b style="color:var(--p1)">In storage</b>'}${loc?` · ${esc(loc)}`:''}${ageTxt?` · <span style="color:var(--t3)">${ageTxt} since ${esc(fmtD(since))}</span>`:''}`;
+  return box(`
+    <div style="display:grid;grid-template-columns:1fr 150px auto;gap:10px;align-items:end">
+      <div><label class="fl">Where is it?</label><input class="fi" type="text" maxlength="120" placeholder="Unit B-12, Main St Storage…" value="${esc(c.lotLocation||'')}" onchange="lotSet(${c.id},'lotLocation',this.value)"></div>
+      <div><label class="fl">Stored since</label><input class="fi" type="date" value="${esc(since)}" onchange="lotSet(${c.id},'lotStoredDate',this.value)"></div>
+      <button class="btn ${c.lotInSale?'btn-p':'btn-s'} btn-sm" style="height:34px" onclick="lotSet(${c.id},'lotInSale',${!c.lotInSale})" title="Toggle whether this lot is currently in a sale">${c.lotInSale?IC.check+' ':''}In a sale</button>
+    </div>
+    <div style="font-size:12px;color:var(--t2);margin-top:9px">${status}</div>`);
+}
+window.lotSet=(id,f,v)=>{
+  const c=S.clients.find(x=>x.id===id); if(!c) return;
+  c[f]=v;
+  if(f==='lotLocation'&&String(v).trim()&&!c.lotStoredDate) c.lotStoredDate=td();   // first time a location is entered: start the clock today
+  DB.upsertClient(c); refreshSec('consignment');
+};
+function mkConsignment(c){ return mkLotTracker(c)+_mkConsignmentBody(c); }
+function _mkConsignmentBody(c){
   const isBuyout = c.consignmentType === 'buyout';
   const sales = c.sales||[], ps = c.privateSales||[];
 
@@ -4040,7 +4095,7 @@ function _invRow(inv,clName){
   const computedSt=inv.status==='paid'?'paid':overpaid?'overpaid':partial?'partial':'unpaid';
   const badgeLabel=inv.status==='paid'?'Paid':overpaid?'Overpaid':partial?'Partial':'Unpaid';
   const amtColor=inv.status==='paid'||overpaid?'var(--ok)':partial?'var(--p2)':'var(--t1)';
-  const ckLine=ckCount>0?`<div style="font-size:10px;color:var(--t3);margin-top:1px">${ckCount} check${ckCount!==1?'s':''} · ${fmt(paidSoFar)} received${overpaid?` · <span style="color:var(--ok)">+${fmt(Math.abs(rawBal))} credit</span>`:rawBal>0?` · <span style="color:var(--warn)">${fmt(rawBal)} remaining</span>`:' · <span style="color:var(--ok)">Paid in full</span>'}</div>`:'';
+  const ckLine=ckCount>0?`<div style="font-size:10px;color:var(--t3);margin-top:1px">${ckCount} check${ckCount!==1?'s':''} · ${fmt(paidSoFar)} received${overpaid?` · <span style="color:var(--ok)">+${fmt(Math.abs(rawBal))} credit</span>`:rawBal>0?` · <span style="color:var(--warn)">${fmt(rawBal)} remaining</span>`:''}</div>`:'';
   return `<div class="ci inv-gl-row" style="gap:11px;align-items:center" onclick="openInvoice(${inv.clientId},${inv.id})">
     <div style="min-width:88px">
       <div style="font-weight:600;font-size:13px">#${esc(inv.num||'—')}</div>
@@ -4059,7 +4114,6 @@ function _invRow(inv,clName){
     <div style="display:flex;gap:5px;flex-shrink:0" onclick="event.stopPropagation()">
       <button class="btn btn-g btn-xs" onclick="openInvoice(${inv.clientId},${inv.id},true)">Edit</button>
       <button class="btn btn-g btn-xs" onclick="openAddPmt('inv',${inv.clientId},${inv.id})" title="Add payment">${IC.plus} Add Payment</button>
-      ${inv.status==='paid'?'<span style="font-size:11px;color:var(--ok)">&#10003; Paid</span>':''}
       <button class="btn btn-g btn-xs" style="color:var(--err)" onclick="deleteInvoice(${inv.id})">Delete</button>
     </div>
   </div>`;
@@ -4135,14 +4189,16 @@ function mkInvoicesGlobal(){
   const unpaidAmt=unpaid.reduce((s,i)=>s+(i.total||0),0);
   const rate=totalAmt>0?Math.round(paidAmt/totalAmt*100):0;
   const sortBtns=[['date','Date'],['num','#'],['client','Client'],['amount','Amount'],['balance','Balance']];
-  d.innerHTML=`
-    <div class="g4" style="margin-bottom:18px">
+  const secCard=(icon,label,body,anchor)=>`<div class="sec" data-anchor="${anchor}"><div class="sh open" style="cursor:default"><div class="st">${icon}${label}</div></div><div class="sb2">${body}</div></div>`;
+  const statsBody=`
+    <div class="g4">
       <div class="mc"><div class="ml">Total Invoiced</div><div class="mv">${fmt(totalAmt)}</div><div class="ms">${invs.length} invoice${invs.length!==1?'s':''}</div></div>
       <div class="mc"><div class="ml">Paid</div><div class="mv" style="color:var(--ok)">${fmt(paidAmt)}</div><div class="ms">${paid.length} invoice${paid.length!==1?'s':''}</div></div>
       <div class="mc"><div class="ml">Outstanding</div><div class="mv" style="color:var(--warn)">${fmt(unpaidAmt)}</div><div class="ms">${unpaid.length} unpaid</div></div>
       <div class="mc"><div class="ml">Collection Rate</div><div class="mv">${rate}%</div><div class="ms">of total invoiced</div></div>
-    </div>
-    <div style="margin-bottom:12px">
+    </div>`;
+  const filterBody=`
+    <div>
       <div style="display:flex;gap:8px;margin-bottom:10px">
         <div class="sw" style="flex:1">${IC.search}<input class="fi si" id="inv_search" placeholder="Search client, invoice #, amount, check #, line items…" oninput="_invQ=this.value;_applyInvFilter();document.getElementById('inv_clear').style.display=this.value?'':'none'" value="${esc(_invQ)}"></div>
         <button id="inv_clear" class="btn btn-g btn-sm" style="display:${_invQ?'':'none'}" onclick="document.getElementById('inv_search').value='';_invQ='';_applyInvFilter();this.style.display='none'">Clear</button>
@@ -4170,8 +4226,9 @@ function mkInvoicesGlobal(){
         <button class="btn btn-g btn-sm" onclick="_invAmtMin='';_invAmtMax='';['invr_amin','invr_amax'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});_applyInvFilter()">Clear</button>
       </div>
       <div style="font-size:11px;color:var(--t3);margin-top:6px" id="inv_count"></div>
-    </div>
-    <div id="inv_global_list" style="display:flex;flex-direction:column;gap:8px"></div>`;
+    </div>`;
+  const listBody=`<div id="inv_global_list" style="display:flex;flex-direction:column;gap:8px"></div>`;
+  d.innerHTML=secCard(IC.dash,'Summary',statsBody,'inv_sum')+secCard(IC.search,'Search &amp; Filter',filterBody,'fl_filter')+secCard(IC.invoice,'Invoices',listBody,'fl_list');
   setTimeout(_applyInvFilter,0);
   return d;
 }
@@ -4213,14 +4270,16 @@ function mkTasks(){
   const activeList=(_taskFilter!=='all'&&_taskFilter!=='general'&&_taskFilter!=='leads')?lists.find(l=>String(l.id)===_taskFilter):null;
   const listBtn=activeList?`<button class="btn btn-g btn-sm" onclick="editTaskList('${activeList.id}')">Edit list</button>`:'';
   const total=open.length+leadRows.length;
-  d.innerHTML=tabBar+`<div class="card" style="margin-bottom:14px">
-    <div class="ch"><div class="ct2">Open Tasks <span style="font-size:12px;font-weight:400;color:var(--t3)">${total}</span></div>${listBtn}</div>
+  d.innerHTML=tabBar+`<div class="sec">
+    <div class="sh open" style="cursor:default"><div class="st">${IC.tasks}Open Tasks <span style="font-size:12px;font-weight:400;color:var(--t3)">${total}</span></div>${listBtn}</div>
+    <div class="sb2">
     ${total===0?`<div style="color:var(--t3);font-size:13px;padding:4px 0">${_taskFilter==='leads'?'No lead tasks. Set a Next Task on a lead to see it here.':'All clear.'}</div>`:''}
     ${open.map(t=>tRow(t)).join('')}
     ${leadRows.map(l=>ltRow(l)).join('')}
     ${_taskFilter==='leads'?'':`<div class="ga" onclick="openAddTask()">${IC.plus} Add task</div>`}
+    </div>
   </div>
-  ${done.length?`<div class="card"><div class="ch"><div class="ct2" style="color:var(--t3)">Completed (${done.length})</div></div>${done.map(t=>tRow(t)).join('')}</div>`:''}`;
+  ${done.length?`<div class="sec"><div class="sh open" style="cursor:default"><div class="st">${IC.check}Completed <span style="font-size:12px;font-weight:400;color:var(--t3)">${done.length}</span></div></div><div class="sb2">${done.map(t=>tRow(t)).join('')}</div></div>`:''}`;
   return d;
 }
 
@@ -4753,7 +4812,7 @@ function ldRow(l){
       <div style="font-weight:600">${esc(l.name||'Unnamed Lead')}</div>
       ${l.active&&l.nextTask?`<div style="font-size:12px;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(l.nextTask)}</div>`:''}
     </div>
-    <span class="bdg" style="flex-shrink:0;background:${l.active?'var(--ok2)':'var(--sur3)'};color:${l.active?'var(--ok)':'var(--t3)'}">${l.active?'Active':'Inactive'}</span>
+    <span class="bdg ${l.active?'bdg-paid':'bdg-archived'}" style="flex-shrink:0">${l.active?'Active':'Inactive'}</span>
   </div>`;
 }
 
@@ -4762,8 +4821,8 @@ window._ldRefreshList=()=>{
   const items=_ldVisible();
   el.innerHTML=items.length?items.map(ldRow).join(''):`<div style="padding:34px;text-align:center;color:var(--t3);font-size:13px;background:var(--sur)">${_ldQ||_ldFilter!=='active'?'No matching leads':'No leads yet'}</div>`;
   const c=document.getElementById('ldcount'); if(c) c.textContent=items.length+(items.length===1?' lead':' leads');
-  [['active','Active'],['inactive','Inactive'],['all','All']].forEach(([k])=>{
-    const p=document.getElementById('ldf_'+k); if(p) p.className='bdg qfpill '+(_ldFilter===k?'on':'off');
+  [['active','paid'],['inactive','archived'],['all','invoiced']].forEach(([k,c])=>{
+    const p=document.getElementById('ldf_'+k); if(p) p.className='bdg bdg-'+c+(_ldFilter===k?' cspill-on':' cspill-off');
   });
   ['newest','name'].forEach(k=>{ const b=document.getElementById('lds_'+k); if(b) b.className='btn btn-sm '+(_ldSort===k?'btn-p':'btn-g'); });
   _flyRender();
@@ -4773,17 +4832,18 @@ window.setLeadSort=k=>{ _ldSort=k; _ldRefreshList(); };
 
 function mkLeads(){
   const d=document.createElement('div');
-  d.innerHTML=`
-    <div style="margin-bottom:12px">
+  const secCard=(icon,label,body,anchor)=>`<div class="sec" data-anchor="${anchor}"><div class="sh open" style="cursor:default"><div class="st">${icon}${label}</div></div><div class="sb2">${body}</div></div>`;
+  const filterBody=`
+    <div>
       <div style="display:flex;gap:8px;margin-bottom:10px">
         <div class="sw" style="flex:1">${IC.search}<input class="fi si" id="ld_search" placeholder="Search name, address, phone, notes…" oninput="_ldQ=this.value;_ldRefreshList()" value="${esc(_ldQ)}"></div>
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
         <div style="display:flex;gap:5px;align-items:center">
           <span style="font-size:11px;color:var(--t3);font-weight:600;margin-right:2px">FILTER</span>
-          <span id="ldf_active" class="bdg qfpill off" onclick="setLeadFilter('active')">Active</span>
-          <span id="ldf_inactive" class="bdg qfpill off" onclick="setLeadFilter('inactive')">Inactive</span>
-          <span id="ldf_all" class="bdg qfpill off" onclick="setLeadFilter('all')">All</span>
+          <span id="ldf_active" class="bdg bdg-paid cspill-off" style="cursor:pointer;user-select:none" onclick="setLeadFilter('active')">Active</span>
+          <span id="ldf_inactive" class="bdg bdg-archived cspill-off" style="cursor:pointer;user-select:none" onclick="setLeadFilter('inactive')">Inactive</span>
+          <span id="ldf_all" class="bdg bdg-invoiced cspill-off" style="cursor:pointer;user-select:none" onclick="setLeadFilter('all')">All</span>
         </div>
         <div style="display:flex;gap:4px;align-items:center">
           <span style="font-size:11px;color:var(--t3);font-weight:600;margin-right:2px">SORT</span>
@@ -4792,9 +4852,11 @@ function mkLeads(){
         </div>
       </div>
       <div style="font-size:11px;color:var(--t3);margin-top:8px" id="ldcount"></div>
-    </div>
+    </div>`;
+  const listBody=`
     <div id="ldlist" style="display:flex;flex-direction:column;border-radius:var(--r2);overflow:hidden;border:1px solid var(--bd)"></div>
     <div class="ga" onclick="openNewLead()" style="margin-top:10px">${IC.plus} Add new lead</div>`;
+  d.innerHTML=secCard(IC.search,'Search &amp; Filter',filterBody,'fl_filter')+secCard(IC.user,'Leads',listBody,'fl_list');
   setTimeout(_ldRefreshList,0);
   return d;
 }
@@ -5022,17 +5084,13 @@ function _mlSplit(d){
 }
 // Mileage page: the daily log, then the Log Miles form below it
 function mkMileageLog(){
-  const d=document.createElement('div');
-  d.appendChild(_mlLogBody());
-  const host=document.createElement('div'); host.id='ml_panel'; host.dataset.anchor='ml';
-  d.appendChild(host);
+  const d=document.createElement('div'); d.className='mlpage';
+  const secCard=(icon,label,body,anchor)=>`<div class="sec" data-anchor="${anchor}"><div class="sh open" style="cursor:default"><div class="st">${icon}${label}</div></div><div class="sb2">${body}</div></div>`;
+  d.innerHTML=secCard(IC.file,'Daily Log',_mlLogBody().innerHTML,'log')
+    +'<div id="ml_panel" data-anchor="ml"></div>'
+    +secCard(IC.folder,'All Mileage',_mlAllHtml(),'all');
   if(!ML) mlNew();
-  mlRender(host);
-  const hd=document.createElement('div'); hd.id='ml_all'; hd.dataset.anchor='all';
-  hd.style.cssText='font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--t3);margin:26px 0 10px';
-  hd.textContent='ALL MILEAGE';
-  d.appendChild(hd);
-  const all=document.createElement('div'); all.innerHTML=_mlAllHtml(); d.appendChild(all);
+  mlRender(d.querySelector('#ml_panel'));
   return d;
 }
 // All mileage, one row per job (plus a General row for miles not assigned to a job)
@@ -5196,13 +5254,16 @@ function mlRender(hostEl){
   const m=ML, locked=!!(m.day&&m.day.tripActive), editing=!!m.day;
   const used=new Set(m.allocs.map(a=>a.clientId));
   const avail=[...S.clients].filter(c=>!used.has(String(c.id))).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-  host.innerHTML=`<div style="font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--t3);margin:26px 0 10px">${editing?'EDIT MILES':'LOG MILES'}</div>
-    <div class="card" style="padding:0;max-width:620px">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--bd)">
-      <div style="font-size:12px;color:var(--t3)">${editing?esc(fmtD(m.date))+(m.day.status==='submitted'?' · submitted':' · draft'):'Miles driven, split between jobs'}</div>
-      ${editing?`<button class="btn btn-g btn-xs" onclick="openMileageLog()">+ New entry</button>`:''}</div>
-    <div style="padding:14px 16px 12px">
-      ${locked?`<div style="background:var(--warn2);color:var(--warn);font-size:12px;padding:8px 10px;border-radius:var(--r2);margin-bottom:10px">A trip is still running on the phone for this day. End it there before editing here.</div>`:''}
+  host.innerHTML=`<div class="sec"><div class="sh open" style="cursor:default"><div class="st">${IC.car}${editing?'Edit Miles':'Log Miles'}</div></div><div class="sb2">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--p6);border-radius:var(--r2);padding:10px 14px;margin-bottom:16px">
+      <div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--p1)">${editing?'Editing a day':'New mileage entry'}</div>
+        <div style="font-size:12px;color:var(--t2);margin-top:2px">${editing?esc(fmtD(m.date))+(m.day.status==='submitted'?' · submitted':' · draft'):'Miles driven, split between jobs'}</div>
+      </div>
+      ${editing?`<button class="btn btn-g btn-sm" onclick="openMileageLog()">${IC.plus} New entry</button>`:''}</div>
+    ${locked?`<div style="background:var(--warn2);color:var(--warn);font-size:12px;padding:8px 10px;border-radius:var(--r2);margin-bottom:16px">A trip is still running on the phone for this day. End it there before editing here.</div>`:''}
+    <div class="g2" style="gap:24px;align-items:start">
+    <div>
       <div class="fg"><label class="fl">Date</label><input class="fi" type="date" id="ml_date" value="${m.date}" ${m.isNew?'':'disabled'} onchange="mlDate(this.value)"></div>
       <div class="fg"><label class="fl">Total miles driven</label><input class="fi" type="number" min="0" step="0.1" id="ml_total" value="${m.total}" placeholder="0" oninput="ML.total=this.value;mlPatch()"></div>
       <div class="g2">
@@ -5210,8 +5271,12 @@ function mlRender(hostEl){
         <div class="fg"><label class="fl">Odometer end</label><input class="fi" type="number" min="0" id="ml_oe" value="${m.odoE}" oninput="mlOdo()"></div>
       </div>
       <div style="font-size:11px;color:var(--t3);margin:-4px 0 8px">Odometer is optional — fill both and the total is worked out for you.</div>
-      <div style="font-size:12px;font-weight:600;color:var(--t2);margin:6px 0 6px">Where did the miles go?</div>
-      <div style="border:1px solid var(--bd);border-radius:var(--r2)">
+      <div class="fg" id="ml_purpose_wrap"><label class="fl">General purpose <span style="color:var(--t3);font-weight:400">(optional)</span></label>
+        <input class="fi" value="${esc(m.purpose)}" placeholder="e.g. storage run" oninput="ML.purpose=this.value"></div>
+    </div>
+    <div>
+      <div class="fl" style="margin-bottom:5px">Where did the miles go?</div>
+      <div style="border:1px solid var(--bd);border-radius:var(--r2);overflow:hidden">
         ${m.allocs.map((a,i)=>{
           const c=S.clients.find(x=>String(x.id)===a.clientId);
           const was=c&&c.mileageMiles&&+c.mileageMiles[m.date]>0&&+c.mileageMiles[m.date]!==+(((m.day?.submittedAllocations||[]).find(s=>s.clientId===a.clientId)||{}).miles||0)?+c.mileageMiles[m.date]:0;
@@ -5239,18 +5304,17 @@ function mlRender(hostEl){
           </select>
         </div>
       </div>
-      <div class="fg" id="ml_purpose_wrap" style="margin-top:10px"><label class="fl">General purpose <span style="color:var(--t3);font-weight:400">(optional)</span></label>
-        <input class="fi" value="${esc(m.purpose)}" placeholder="e.g. storage run" oninput="ML.purpose=this.value"></div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--t2)">
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--t2);margin-top:12px">
         <span>Mileage cost to jobs</span><span style="font-family:var(--fn);font-weight:700;color:var(--err)" id="ml_jobcost"></span>
       </div>
       <div id="ml_err" style="font-size:12px;color:var(--err);margin-top:6px"></div>
       ${m.msg?`<div style="font-size:12px;color:var(--ok);margin-top:6px">${esc(m.msg)}</div>`:''}
     </div>
-    <div style="padding:10px 16px;border-top:1px solid var(--bd);display:flex;gap:8px;align-items:center">
+    </div>
+    <div style="margin-top:16px;display:flex;gap:8px;align-items:center;justify-content:flex-end">
       ${editing?`<button class="btn btn-d btn-sm" onclick="mlDelete()" title="Delete this day">${IC.trash}</button>`:''}
-      <button class="btn btn-p btn-sm" id="ml_save" style="flex:1;justify-content:center" onclick="mlSubmit()" ${locked?'disabled':''}>${editing&&m.day.status==='submitted'?'Submit changes':'Submit mileage'}</button>
-    </div></div>`;
+      <button class="btn btn-p btn-sm" id="ml_save" onclick="mlSubmit()" ${locked?'disabled':''}>${editing&&m.day.status==='submitted'?'Submit changes':'Submit mileage'}</button>
+    </div></div></div>`;
   mlPatch();
 }
 window.mlPatch = () => {
@@ -5464,12 +5528,15 @@ function lbRender(hostEl){
   const used=new Set(m.allocs.map(a=>a.clientId));
   const avail=[...S.clients].filter(c=>!used.has(String(c.id))).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   const person=_lbPerson(m.empId);
-  host.innerHTML=`<div style="font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--t3);margin:26px 0 10px">${editing?'EDIT LABOR':'LOG LABOR'}</div>
-    <div class="card" style="padding:0;max-width:620px">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--bd)">
-      <div style="font-size:12px;color:var(--t3)">${editing?esc(person.name)+' · '+esc(fmtD(m.date))+(m.day.status==='submitted'?' · submitted':' · draft'):'Hours worked, split between jobs'}</div>
-      ${editing?`<button class="btn btn-g btn-xs" onclick="openLaborLog()">+ New entry</button>`:''}</div>
-    <div style="padding:14px 16px 12px">
+  host.innerHTML=`<div class="sec"><div class="sh open" style="cursor:default"><div class="st">${IC.clock}${editing?'Edit Labor':'Log Labor'}</div></div><div class="sb2">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--p6);border-radius:var(--r2);padding:10px 14px;margin-bottom:16px">
+      <div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--p1)">${editing?'Editing a day':'New labor entry'}</div>
+        <div style="font-size:12px;color:var(--t2);margin-top:2px">${editing?esc(person.name)+' · '+esc(fmtD(m.date))+(m.day.status==='submitted'?' · submitted':' · draft'):'Hours worked, split between jobs'}</div>
+      </div>
+      ${editing?`<button class="btn btn-g btn-sm" onclick="openLaborLog()">${IC.plus} New entry</button>`:''}</div>
+    <div class="g2" style="gap:24px;align-items:start">
+    <div>
       <div class="fg"><label class="fl">Person</label>
         <select class="fi" id="lb_emp" ${m.isNew?'':'disabled'} onchange="lbPerson(this.value)">
           ${(editing&&!people.some(p=>p.id===m.empId)?[person,...people]:people).map(p=>`<option value="${esc(p.id)}"${p.id===m.empId?' selected':''}>${esc(p.name)}</option>`).join('')}
@@ -5478,8 +5545,12 @@ function lbRender(hostEl){
         <div class="fg"><label class="fl">Date</label><input class="fi" type="date" id="lb_date" value="${m.date}" ${m.isNew?'':'disabled'} onchange="lbDate(this.value)"></div>
         <div class="fg"><label class="fl">Hours worked</label><input class="fi" type="number" min="0" max="24" step="0.25" id="lb_hours" value="${m.hours}" placeholder="0" oninput="LB.hours=this.value;lbPatch()"></div>
       </div>
-      <div style="font-size:12px;font-weight:600;color:var(--t2);margin:6px 0 6px">Where did the hours go?</div>
-      <div style="border:1px solid var(--bd);border-radius:var(--r2)">
+      <div class="fg" id="lb_purpose_wrap"><label class="fl">General purpose <span style="color:var(--t3);font-weight:400">(optional)</span></label>
+        <input class="fi" value="${esc(m.purpose)}" placeholder="e.g. shop cleanup" oninput="LB.purpose=this.value"></div>
+    </div>
+    <div>
+      <div class="fl" style="margin-bottom:5px">Where did the hours go?</div>
+      <div style="border:1px solid var(--bd);border-radius:var(--r2);overflow:hidden">
         ${m.allocs.map((a,i)=>{
           const c=S.clients.find(x=>String(x.id)===a.clientId);
           const own=+(((m.day?.submittedAllocations||[]).find(s=>s.clientId===a.clientId)||{}).hours||0);
@@ -5509,18 +5580,17 @@ function lbRender(hostEl){
           </select>
         </div>
       </div>
-      <div class="fg" id="lb_purpose_wrap" style="margin-top:10px"><label class="fl">General purpose <span style="color:var(--t3);font-weight:400">(optional)</span></label>
-        <input class="fi" value="${esc(m.purpose)}" placeholder="e.g. shop cleanup" oninput="LB.purpose=this.value"></div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--t2)">
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--t2);margin-top:12px">
         <span>Labor cost to jobs</span><span style="font-family:var(--fn);font-weight:700;color:var(--err)" id="lb_jobcost"></span>
       </div>
       <div id="lb_err" style="font-size:12px;color:var(--err);margin-top:6px"></div>
       ${m.msg?`<div style="font-size:12px;color:var(--ok);margin-top:6px">${esc(m.msg)}</div>`:''}
     </div>
-    <div style="padding:10px 16px;border-top:1px solid var(--bd);display:flex;gap:8px;align-items:center;flex-shrink:0">
+    </div>
+    <div style="margin-top:16px;display:flex;gap:8px;align-items:center;justify-content:flex-end">
       ${editing?`<button class="btn btn-d btn-sm" onclick="lbDelete()" title="Delete this day">${IC.trash}</button>`:''}
-      <button class="btn btn-p btn-sm" id="lb_save" style="flex:1;justify-content:center" onclick="lbSubmit()">${editing&&m.day.status==='submitted'?'Submit changes':'Submit labor'}</button>
-    </div></div>`;
+      <button class="btn btn-p btn-sm" id="lb_save" onclick="lbSubmit()">${editing&&m.day.status==='submitted'?'Submit changes':'Submit labor'}</button>
+    </div></div></div>`;
   lbPatch();
 }
 window.lbPatch = () => {
@@ -5694,8 +5764,12 @@ function _lbEmpCardsHtml(){
 }
 
 function mkLaborPage(){
-  const d=document.createElement('div');
-  d.innerHTML=_lbLogHtml()+'<div id="lb_panel" data-anchor="lb"></div><div id="lb_all" data-anchor="all" style="font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--t3);margin:26px 0 10px">ALL LABOR</div>'+_lbAllHtml()+'<div id="lb_emps" data-anchor="emp" style="font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--t3);margin:26px 0 10px">EMPLOYEES</div>'+_lbEmpCardsHtml();
+  const d=document.createElement('div'); d.className='lbpage';
+  const secCard=(icon,label,body,anchor)=>`<div class="sec" data-anchor="${anchor}"><div class="sh open" style="cursor:default"><div class="st">${icon}${label}</div></div><div class="sb2">${body}</div></div>`;
+  d.innerHTML=secCard(IC.file,'Daily Log',_lbLogHtml(),'log')
+    +'<div id="lb_panel" data-anchor="lb"></div>'
+    +secCard(IC.labor,'All Labor',_lbAllHtml(),'all')
+    +secCard(IC.user,'Employees',_lbEmpCardsHtml(),'emp');
   if(!LB) lbNew();
   lbRender(d.querySelector('#lb_panel'));
   return d;

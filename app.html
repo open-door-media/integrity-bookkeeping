@@ -1827,21 +1827,13 @@ function renderSubbar(){
         inner0.innerHTML='<div style="display:flex;flex-direction:column;flex:1;min-height:0">'+_empPanelHtml()+'</div>';
       }
     }else if(listKind==='labor'){
-      // The labor log form lives here. Don't rebuild it under the cursor while a field is being typed in.
       if(!LB) lbNew();
-      if(changed||!document.getElementById('lb_panel')||!_flyFocusInside()){
-        inner0.className='subbar-in'; inner0.dataset.dock='labor';
-        inner0.innerHTML='<div id="lb_panel" style="display:flex;flex-direction:column;flex:1;min-height:0"></div>';
-        lbRender();
-      }
+      inner0.className='subbar-in'; inner0.dataset.dock='labor';
+      inner0.innerHTML='<div style="display:flex;flex-direction:column;flex:1;min-height:0">'+_lbPanelHtml()+'</div>';
     }else if(listKind==='mileageLog'){
-      // The log form lives here. Don't rebuild it under the cursor while a field is being typed in.
       if(!ML) mlNew();
-      if(changed||!document.getElementById('ml_panel')||!_flyFocusInside()){
-        inner0.className='subbar-in'; inner0.dataset.dock='mileageLog';
-        inner0.innerHTML='<div id="ml_panel" style="display:flex;flex-direction:column;flex:1;min-height:0"></div>';
-        mlRender();
-      }
+      inner0.className='subbar-in'; inner0.dataset.dock='mileageLog';
+      inner0.innerHTML='<div style="display:flex;flex-direction:column;flex:1;min-height:0">'+_mlPanelHtml()+'</div>';
     }else if(listKind==='tasks'){
       inner0.className='subbar-in'; inner0.dataset.dock='tasks';
       inner0.innerHTML=_sbnTasksHtml(S.view!=='tasks');
@@ -2051,9 +2043,8 @@ function renderTopbar(){
   else if(v==='labor'){ title='Labor'; sub='Daily log & crew'; acts=`<button class="btn btn-p btn-sm" onclick="openLaborLog()">${IC.plus} Log Labor</button><button class="btn btn-s btn-sm" data-action="createEmployee" onclick="openEmpModal()">${IC.plus} Add Employee</button>`; }
   else if(v==='employee'&&S.openEmployee!=null){
     const _emp=S.employees.find(x=>x.id===S.openEmployee);
-    title=`<span style="cursor:pointer;color:var(--t3);font-weight:400" onclick="nav('labor')">Labor</span> <span style="color:var(--bd2)">/</span> ${esc(_emp?.name||'Employee')}`;
+    title=esc(_emp?.name||'Employee');
     sub=_emp?.isOwner?'Owner':'Crew member';
-    acts=!_emp?.isOwner?ib('edit','edit','Edit employee',`openEmpEdit(${S.openEmployee})`):'';
   }
   else if(v==='analytics'){ title='Analytics'; sub='Performance overview'; }
   else if(v==='settings'){ title='Settings'; sub='Defaults & preferences'; }
@@ -5014,7 +5005,8 @@ let _mlLoaded=false;
 function _mlReload(){
   DB.loadMileageDays().then(rows=>{
     _mlDays=rows; _mlLoaded=true;
-    if(S.view==='mileageLog') renderPage();
+    const typing=document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#ml_panel');
+    if(S.view==='mileageLog'&&!typing) renderPage();
   }).catch(()=>{ _mlLoaded=true; });
 }
 function _mlSplit(d){
@@ -5028,7 +5020,54 @@ function _mlSplit(d){
   const general=Math.max(0,Math.round((d.totalMiles-allocs.reduce((s,a)=>s+a.miles,0))*10)/10);
   return {jobs,general};
 }
+// Mileage page: the daily log, then the Log Miles form below it
 function mkMileageLog(){
+  const d=document.createElement('div');
+  d.appendChild(_mlLogBody());
+  const host=document.createElement('div'); host.id='ml_panel'; host.dataset.anchor='ml';
+  d.appendChild(host);
+  if(!ML) mlNew();
+  mlRender(host);
+  const hd=document.createElement('div'); hd.id='ml_all'; hd.dataset.anchor='all';
+  hd.style.cssText='font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--t3);margin:26px 0 10px';
+  hd.textContent='ALL MILEAGE';
+  d.appendChild(hd);
+  const all=document.createElement('div'); all.innerHTML=_mlAllHtml(); d.appendChild(all);
+  return d;
+}
+// All mileage, one row per job (plus a General row for miles not assigned to a job)
+function _mlAllHtml(){
+  const fmtShort=d=>{try{return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});}catch{return d;}};
+  const fmtRange=ds=>!ds.length?'—':ds.length===1?fmtShort(ds[0]):fmtShort(ds[0])+'–'+fmtShort(ds[ds.length-1]);
+  const r1=n=>(Math.round(n*10)/10).toLocaleString('en-US');
+  const rows=[];
+  for(const c of S.clients){
+    const ents=Object.entries(c.mileageMiles||{}).filter(([,v])=>+v>0);
+    if(!ents.length) continue;
+    const miles=ents.reduce((s,[,v])=>s+(+v),0), ds=ents.map(([d])=>d).sort();
+    rows.push({job:c,dates:ds,miles,cost:miles*_mlRate(c),last:ds[ds.length-1]||''});
+  }
+  const gen={dates:new Set(),miles:0};
+  for(const x of (_mlDays||[])){ const g=_mlSplit(x).general; if(g>0){ gen.dates.add(x.date); gen.miles+=g; } }
+  if(gen.miles>0){ const ds=[...gen.dates].sort(); rows.push({general:true,dates:ds,miles:gen.miles,cost:0,last:ds[ds.length-1]||''}); }
+  rows.sort((a,b)=>b.last.localeCompare(a.last));
+  if(!rows.length) return `<div class="card" style="padding:48px;text-align:center;color:var(--t3)"><div style="font-size:15px;font-weight:500;color:var(--t2);margin-bottom:4px">No miles recorded</div><div style="font-size:13px">Miles will appear here once logged.</div></div>`;
+  const totMi=rows.reduce((s,r)=>s+r.miles,0), totCost=rows.reduce((s,r)=>s+r.cost,0);
+  return `<div class="card" style="padding:0"><div class="lw lw-m"><table class="lt">
+    <thead><tr><th style="text-align:left">Job</th><th>Status</th><th style="text-align:left">Dates driven</th><th>Miles</th><th>Mileage cost</th></tr></thead>
+    <tbody>
+      ${rows.map(r=>`<tr${r.general?'':` style="cursor:pointer" onclick="openClient(${r.job.id})" title="Open this job"`}>
+        <td style="text-align:left">${r.general?`<div style="font-weight:600">General</div><div style="font-size:11px;color:var(--t3)">Not assigned to a job</div>`
+          :`<div style="font-weight:600">${esc(r.job.name||'Unnamed')}</div><div style="font-size:11px;color:var(--t3)">#${esc(String(r.job.num||''))}</div>`}</td>
+        <td>${r.general?'<span class="bdg bdg-archived">General</span>':`<span class="bdg bdg-${r.job.status}">${cap(r.job.status)}</span>`}</td>
+        <td style="text-align:left;white-space:nowrap;color:var(--t2)">${fmtRange(r.dates)}</td>
+        <td style="font-family:var(--fn);font-weight:600">${r1(r.miles)} mi</td>
+        <td style="font-family:var(--fn);font-weight:600;color:var(--err)">${r.cost>0?'−'+fmt(r.cost):'—'}</td>
+      </tr>`).join('')}
+      <tr class="lt-tot"><td colspan="3" style="text-align:left">Total</td><td>${r1(totMi)} mi</td><td style="color:var(--err)">${totCost>0?'−'+fmt(totCost):'—'}</td></tr>
+    </tbody></table></div></div>`;
+}
+function _mlLogBody(){
   const d=document.createElement('div');
   if(!_mlLoaded){
     d.innerHTML=`<div class="card" style="padding:48px;text-align:center;color:var(--t3);font-size:13px">Loading mileage…</div>`;
@@ -5124,21 +5163,45 @@ function mlNew(date){
 window.openMileageLog = date => {
   const d=date||td();
   mlNew((_mlDays||[]).some(x=>x.date===d)?d:null); ML.date=d;
-  if(S.view!=='mileageLog'){ nav('mileageLog'); return; }
-  renderSubbar(); mlRender();
-  if(!date) setTimeout(()=>document.getElementById('ml_total')?.focus(),60);
+  if(S.view!=='mileageLog'){ nav('mileageLog'); setTimeout(()=>mlGo('ml'),120); return; }
+  mlRender(); mlGo('ml');
+};
+// Mileage flyout: a Log Miles row that jumps to the form on the page
+let _mlRowOn='';
+function _mlPanelHtml(){
+  const row=(key,icon,label)=>`<div class="sbn-i${_mlRowOn===key&&S.view==='mileageLog'?' on':''}" data-mlrow="${key}" onclick="mlGo('${key}')">${icon}<span style="min-width:0;flex:1">${label}</span></div>`;
+  return `<div class="sbn-hd"><div class="t">Mileage</div><div class="s">Daily log</div></div>
+    <div style="flex:1;min-height:0;overflow-y:auto;padding:4px 0 14px">
+      ${row('ml',IC.car,'Log Miles')}
+      ${row('all',IC.folder,'All Mileage')}
+    </div>`;
+}
+// Jump to a section of the Mileage page: 'ml' (the form) or 'all' (all mileage)
+window.mlGo = (key='ml') => {
+  _hoverKind=''; clearTimeout(_flyT);
+  _mlRowOn=key;
+  if(S.view!=='mileageLog'){ nav('mileageLog'); setTimeout(()=>mlGo(key),80); return; }
+  const ct=document.getElementById('content'), el=ct.querySelector('[data-anchor="'+key+'"]'); if(!el) return;
+  const top=el.getBoundingClientRect().top-ct.getBoundingClientRect().top+ct.scrollTop-14;
+  _sbnLockUntil=Date.now()+650;
+  document.querySelectorAll('#subbar [data-mlrow]').forEach(i=>i.classList.toggle('on',i.dataset.mlrow===key));
+  ct.scrollTo({top:Math.max(0,top),behavior:'smooth'});
+  if(key==='ml') setTimeout(()=>document.getElementById('ml_total')?.focus({preventScroll:true}),400);
 };
 // Panel contents: header, scrolling form, pinned buttons. Rebuilt from ML, so it survives panel/page re-renders.
-function mlRender(){
-  const host=document.getElementById('ml_panel'); if(!host||!ML) return;
+let _mlHost=null;
+function mlRender(hostEl){
+  const host=hostEl||document.getElementById('ml_panel'); if(!host||!ML) return;
+  _mlHost=host;
   const m=ML, locked=!!(m.day&&m.day.tripActive), editing=!!m.day;
   const used=new Set(m.allocs.map(a=>a.clientId));
   const avail=[...S.clients].filter(c=>!used.has(String(c.id))).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-  host.innerHTML=`
-    <div class="sbn-hd"><div class="t">${editing?'Edit Miles':'Log Miles'}</div>
-      <div class="s">${editing?esc(fmtD(m.date))+(m.day.status==='submitted'?' · submitted':' · draft'):'Miles driven, split between jobs'}</div>
-      ${editing?`<div class="sbn-back" onclick="openMileageLog()">+ New entry</div>`:''}</div>
-    <div style="flex:1;min-height:0;overflow-y:auto;padding:4px 16px 12px">
+  host.innerHTML=`<div style="font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--t3);margin:26px 0 10px">${editing?'EDIT MILES':'LOG MILES'}</div>
+    <div class="card" style="padding:0;max-width:620px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--bd)">
+      <div style="font-size:12px;color:var(--t3)">${editing?esc(fmtD(m.date))+(m.day.status==='submitted'?' · submitted':' · draft'):'Miles driven, split between jobs'}</div>
+      ${editing?`<button class="btn btn-g btn-xs" onclick="openMileageLog()">+ New entry</button>`:''}</div>
+    <div style="padding:14px 16px 12px">
       ${locked?`<div style="background:var(--warn2);color:var(--warn);font-size:12px;padding:8px 10px;border-radius:var(--r2);margin-bottom:10px">A trip is still running on the phone for this day. End it there before editing here.</div>`:''}
       <div class="fg"><label class="fl">Date</label><input class="fi" type="date" id="ml_date" value="${m.date}" ${m.isNew?'':'disabled'} onchange="mlDate(this.value)"></div>
       <div class="fg"><label class="fl">Total miles driven</label><input class="fi" type="number" min="0" step="0.1" id="ml_total" value="${m.total}" placeholder="0" oninput="ML.total=this.value;mlPatch()"></div>
@@ -5184,24 +5247,25 @@ function mlRender(){
       <div id="ml_err" style="font-size:12px;color:var(--err);margin-top:6px"></div>
       ${m.msg?`<div style="font-size:12px;color:var(--ok);margin-top:6px">${esc(m.msg)}</div>`:''}
     </div>
-    <div style="padding:10px 16px;border-top:1px solid var(--bd);display:flex;gap:8px;align-items:center;flex-shrink:0">
+    <div style="padding:10px 16px;border-top:1px solid var(--bd);display:flex;gap:8px;align-items:center">
       ${editing?`<button class="btn btn-d btn-sm" onclick="mlDelete()" title="Delete this day">${IC.trash}</button>`:''}
       <button class="btn btn-p btn-sm" id="ml_save" style="flex:1;justify-content:center" onclick="mlSubmit()" ${locked?'disabled':''}>${editing&&m.day.status==='submitted'?'Submit changes':'Submit mileage'}</button>
-    </div>`;
+    </div></div>`;
   mlPatch();
 }
 window.mlPatch = () => {
   if(!ML) return;
   const {total,general}=_mlNums();
+  const $=id=>(_mlHost||document).querySelector('#'+id);
   let jobCost=0;
   ML.allocs.forEach((a,i)=>{
     const c=S.clients.find(x=>String(x.id)===a.clientId); const cost=(+a.miles||0)*(c?_mlRate(c):(S.settings?.mileageRate??0.67));
-    jobCost+=cost; const el=document.getElementById('ml_cost_'+i); if(el) el.textContent=cost>0?fmt(cost):'';
+    jobCost+=cost; const el=$('ml_cost_'+i); if(el) el.textContent=cost>0?fmt(cost):'';
   });
-  const g=document.getElementById('ml_gen'); if(g){ g.textContent=_r1(general)+' mi'; g.style.color=general<0?'var(--err)':''; }
-  const w=document.getElementById('ml_purpose_wrap'); if(w) w.style.display=general>0?'':'none';
-  const jc=document.getElementById('ml_jobcost'); if(jc) jc.textContent=jobCost>0?'−'+fmt(jobCost):'—';
-  const e=document.getElementById('ml_err');
+  const g=$('ml_gen'); if(g){ g.textContent=_r1(general)+' mi'; g.style.color=general<0?'var(--err)':''; }
+  const w=$('ml_purpose_wrap'); if(w) w.style.display=general>0?'':'none';
+  const jc=$('ml_jobcost'); if(jc) jc.textContent=jobCost>0?'−'+fmt(jobCost):'—';
+  const e=$('ml_err');
   if(e) e.textContent = ML.err || (general<0?`The jobs add up to more than the ${total} mi driven.`:'');
 };
 window.mlOdo = () => {
@@ -5285,7 +5349,8 @@ let _lbLoaded=false;
 function _lbReload(){
   DB.loadLaborDays().then(rows=>{
     _lbDays=rows; _lbLoaded=true;
-    if(S.view==='labor') renderPage();
+    const typing=document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#lb_panel');
+    if((S.view==='labor'&&!typing)||S.view==='employee') renderPage();
   }).catch(()=>{ _lbLoaded=true; });
 }
 const _r2=n=>Math.round(n*100)/100;
@@ -5388,21 +5453,23 @@ window.openLaborLog = (date,empId) => {
   const ex=(_lbDays||[]).some(x=>x.date===d&&x.employeeId===(eid||_lbPeople()[0]?.id));
   lbNew(ex?d:null,eid); LB.date=d;
   if(S.view!=='labor'){ nav('labor'); return; }
-  renderSubbar(); lbRender();
-  if(!date) setTimeout(()=>document.getElementById('lb_hours')?.focus(),60);
+  lbRender(); lbGo('lb');
 };
-function lbRender(){
-  const host=document.getElementById('lb_panel'); if(!host||!LB) return;
+let _lbHost=null;
+function lbRender(hostEl){
+  const host=hostEl||document.getElementById('lb_panel'); if(!host||!LB) return;
+  _lbHost=host;
   const m=LB, editing=!!m.day, people=_lbPeople();
   if(!people.some(p=>p.id===m.empId)&&!editing) m.empId=people[0]?people[0].id:'kevin';
   const used=new Set(m.allocs.map(a=>a.clientId));
   const avail=[...S.clients].filter(c=>!used.has(String(c.id))).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   const person=_lbPerson(m.empId);
-  host.innerHTML=`
-    <div class="sbn-hd"><div class="t">${editing?'Edit Labor':'Log Labor'}</div>
-      <div class="s">${editing?esc(person.name)+' · '+esc(fmtD(m.date))+(m.day.status==='submitted'?' · submitted':' · draft'):'Hours worked, split between jobs'}</div>
-      ${editing?`<div class="sbn-back" onclick="openLaborLog()">+ New entry</div>`:''}</div>
-    <div style="flex:1;min-height:0;overflow-y:auto;padding:4px 16px 12px">
+  host.innerHTML=`<div style="font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--t3);margin:26px 0 10px">${editing?'EDIT LABOR':'LOG LABOR'}</div>
+    <div class="card" style="padding:0;max-width:620px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-bottom:1px solid var(--bd)">
+      <div style="font-size:12px;color:var(--t3)">${editing?esc(person.name)+' · '+esc(fmtD(m.date))+(m.day.status==='submitted'?' · submitted':' · draft'):'Hours worked, split between jobs'}</div>
+      ${editing?`<button class="btn btn-g btn-xs" onclick="openLaborLog()">+ New entry</button>`:''}</div>
+    <div style="padding:14px 16px 12px">
       <div class="fg"><label class="fl">Person</label>
         <select class="fi" id="lb_emp" ${m.isNew?'':'disabled'} onchange="lbPerson(this.value)">
           ${(editing&&!people.some(p=>p.id===m.empId)?[person,...people]:people).map(p=>`<option value="${esc(p.id)}"${p.id===m.empId?' selected':''}>${esc(p.name)}</option>`).join('')}
@@ -5449,36 +5516,27 @@ function lbRender(){
       </div>
       <div id="lb_err" style="font-size:12px;color:var(--err);margin-top:6px"></div>
       ${m.msg?`<div style="font-size:12px;color:var(--ok);margin-top:6px">${esc(m.msg)}</div>`:''}
-      <div style="margin:18px -16px 0;padding:12px 16px 0;border-top:1px solid var(--bd)">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <span style="font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--t3)">EMPLOYEES</span>
-          <button class="btn btn-s btn-xs" onclick="closeFlyout(true);openEmpModal()">${IC.plus} Add Employee</button>
-        </div>
-        ${[...S.employees].sort((a,b)=>(b.active-a.active)||(b.isOwner-a.isOwner)).map(e=>`<div class="sbn-i" style="margin-left:-8px;margin-right:-8px" onclick="_hoverKind='';clearTimeout(_flyT);openEmployee(${e.id})" title="Open ${esc(e.name)}">
-          <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${e.active?'':'color:var(--t3)'}">${esc(e.name)}${e.isOwner?' <span style="font-size:10px;color:var(--p3)">Owner</span>':''}</span>
-          <span class="bdg ${e.active?'bdg-closed':'bdg-archived'}">${e.active?'Active':'Inactive'}</span>
-        </div>`).join('')}
-      </div>
     </div>
     <div style="padding:10px 16px;border-top:1px solid var(--bd);display:flex;gap:8px;align-items:center;flex-shrink:0">
       ${editing?`<button class="btn btn-d btn-sm" onclick="lbDelete()" title="Delete this day">${IC.trash}</button>`:''}
       <button class="btn btn-p btn-sm" id="lb_save" style="flex:1;justify-content:center" onclick="lbSubmit()">${editing&&m.day.status==='submitted'?'Submit changes':'Submit labor'}</button>
-    </div>`;
+    </div></div>`;
   lbPatch();
 }
 window.lbPatch = () => {
   if(!LB) return;
   const {hours,general}=_lbNums(); const person=_lbPerson(LB.empId);
+  const $=id=>(_lbHost||document).querySelector('#'+id);
   let jobCost=0;
   LB.allocs.forEach((a,i)=>{
     const c=S.clients.find(x=>String(x.id)===a.clientId); const rate=_lbJobRate(c,person);
     const cost=rate?(+a.hours||0)*rate:0;
-    jobCost+=cost; const el=document.getElementById('lb_cost_'+i); if(el) el.textContent=cost>0?fmt(cost):'';
+    jobCost+=cost; const el=$('lb_cost_'+i); if(el) el.textContent=cost>0?fmt(cost):'';
   });
-  const g=document.getElementById('lb_gen'); if(g){ g.textContent=_hr(general)+' hr'; g.style.color=general<0?'var(--err)':''; }
-  const w=document.getElementById('lb_purpose_wrap'); if(w) w.style.display=general>0?'':'none';
-  const jc=document.getElementById('lb_jobcost'); if(jc) jc.textContent=person.isKevin?'no pay rate':(jobCost>0?'−'+fmt(jobCost):'—');
-  const e=document.getElementById('lb_err');
+  const g=$('lb_gen'); if(g){ g.textContent=_hr(general)+' hr'; g.style.color=general<0?'var(--err)':''; }
+  const w=$('lb_purpose_wrap'); if(w) w.style.display=general>0?'':'none';
+  const jc=$('lb_jobcost'); if(jc) jc.textContent=person.isKevin?'no pay rate':(jobCost>0?'−'+fmt(jobCost):'—');
+  const e=$('lb_err');
   if(e) e.textContent = LB.err || (general<0?`The jobs add up to more than the ${hours} hr worked.`:'');
 };
 // Changing person or date on a new entry may land on a day that already exists: open that one instead
@@ -5566,9 +5624,52 @@ window.lbDelete = () => {
   });
 };
 
-function mkLaborPage(){
-  const d=document.createElement('div');
-  d.innerHTML=_lbLogHtml()+`<div style="font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--t3);margin:26px 0 10px">EMPLOYEES</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:13px">
+// All labor, one row per job: dates worked, who worked, total hours and labor cost
+function _lbAllHtml(){
+  const fmtShort=d=>{try{return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});}catch{return d;}};
+  const fmtRange=ds=>!ds.length?'—':ds.length===1?fmtShort(ds[0]):fmtShort(ds[0])+'–'+fmtShort(ds[ds.length-1]);
+  const rows=[];
+  for(const c of S.clients){
+    const dates=new Set(), who=[]; let hrs=0, cost=0;
+    for(const [snap,byDay] of Object.entries(c.laborHours||{})){
+      const ents=Object.entries(byDay||{}).filter(([,v])=>+(v?.reg??v??0)>0);
+      if(!ents.length) continue;
+      const person=_lbPerson(snap), reg=ents.reduce((s,[,v])=>s+(+(v?.reg??v??0)),0), rate=_lbJobRate(c,person);
+      ents.forEach(([d])=>dates.add(d)); who.push(person.name); hrs+=reg; cost+=rate!=null?reg*rate:0;
+    }
+    if(hrs<=0) continue;
+    const ds=[...dates].sort();
+    rows.push({job:c,dates:ds,who,hrs,cost,last:ds[ds.length-1]||''});
+  }
+  // Hours not assigned to a job, kept as one row so the totals stay complete
+  const gen={dates:new Set(),who:new Set(),hrs:0,cost:0};
+  for(const x of (_lbDays||[])){
+    const g=_lbSplit(x).general; if(g<=0) continue;
+    const person=_lbPerson(x.employeeId);
+    gen.dates.add(x.date); gen.who.add(person.name); gen.hrs+=g; gen.cost+=person.rate!=null?g*person.rate:0;
+  }
+  if(gen.hrs>0){ const ds=[...gen.dates].sort(); rows.push({general:true,dates:ds,who:[...gen.who],hrs:gen.hrs,cost:gen.cost,last:ds[ds.length-1]||''}); }
+  rows.sort((a,b)=>b.last.localeCompare(a.last));
+  if(!rows.length) return `<div class="card" style="padding:48px;text-align:center;color:var(--t3)"><div style="font-size:15px;font-weight:500;color:var(--t2);margin-bottom:4px">No hours recorded</div><div style="font-size:13px">Hours will appear here once logged.</div></div>`;
+  const totHrs=rows.reduce((s,r)=>s+r.hrs,0), totCost=rows.reduce((s,r)=>s+r.cost,0);
+  return `<div class="card" style="padding:0"><div class="lw lw-m"><table class="lt">
+    <thead><tr><th style="text-align:left">Job</th><th>Status</th><th style="text-align:left">Dates worked</th><th style="text-align:left">Employees</th><th>Hours</th><th>Labor cost</th></tr></thead>
+    <tbody>
+      ${rows.map(r=>`<tr${r.general?'':` style="cursor:pointer" onclick="openClientLabor(${r.job.id})" title="Open this job's labor"`}>
+        <td style="text-align:left">${r.general?`<div style="font-weight:600">General</div><div style="font-size:11px;color:var(--t3)">Not assigned to a job</div>`
+          :`<div style="font-weight:600">${esc(r.job.name||'Unnamed')}</div><div style="font-size:11px;color:var(--t3)">#${esc(String(r.job.num||''))}</div>`}</td>
+        <td>${r.general?'<span class="bdg bdg-archived">General</span>':`<span class="bdg bdg-${r.job.status}">${cap(r.job.status)}</span>`}</td>
+        <td style="text-align:left;white-space:nowrap;color:var(--t2)">${fmtRange(r.dates)}</td>
+        <td style="text-align:left;color:var(--t2)">${esc(r.who.join(', '))}</td>
+        <td style="font-family:var(--fn);font-weight:600">${_hr(r.hrs)} hr</td>
+        <td style="font-family:var(--fn);font-weight:600;color:var(--ok)">${r.cost>0?fmt(r.cost):'—'}</td>
+      </tr>`).join('')}
+      <tr class="lt-tot"><td colspan="4" style="text-align:left">Total</td><td>${_hr(totHrs)} hr</td><td style="color:var(--ok)">${totCost>0?fmt(totCost):'—'}</td></tr>
+    </tbody></table></div></div>`;
+}
+
+function _lbEmpCardsHtml(){
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:13px">
     ${S.employees.map(e=>`<div class="card" style="padding:14px;opacity:${e.active?1:.58};cursor:pointer;transition:box-shadow .15s" onclick="openEmployee(${e.id})">
       <div style="display:flex;align-items:center;gap:9px;margin-bottom:9px">
         <div class="av" style="width:36px;height:36px;font-size:13px">${e.name[0]}</div>
@@ -5590,8 +5691,45 @@ function mkLaborPage(){
       <div style="text-align:center">${IC.plus}<div style="font-size:12px;font-weight:500;margin-top:3px">Add employee</div></div>
     </div>
   </div>`;
+}
+
+function mkLaborPage(){
+  const d=document.createElement('div');
+  d.innerHTML=_lbLogHtml()+'<div id="lb_panel" data-anchor="lb"></div><div id="lb_all" data-anchor="all" style="font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--t3);margin:26px 0 10px">ALL LABOR</div>'+_lbAllHtml()+'<div id="lb_emps" data-anchor="emp" style="font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--t3);margin:26px 0 10px">EMPLOYEES</div>'+_lbEmpCardsHtml();
+  if(!LB) lbNew();
+  lbRender(d.querySelector('#lb_panel'));
   return d;
 }
+
+// Labor flyout: a Log Labor row that jumps to the form on the page, then the employee list
+let _lbRowOn='';
+function _lbPanelHtml(){
+  const row=(key,icon,label,extra='')=>`<div class="sbn-i${_lbRowOn===key&&S.view==='labor'?' on':''}" data-lbrow="${key}" onclick="lbGo('${key}')">${icon}<span style="min-width:0;flex:1">${label}</span>${extra}</div>`;
+  return `<div class="sbn-hd"><div class="t">Labor</div><div class="s">Daily log & crew</div></div>
+    <div style="flex:1;min-height:0;overflow-y:auto;padding:4px 0 14px">
+      ${row('lb',IC.clock,'Log Labor')}
+      ${row('all',IC.labor,'All Labor')}
+      ${row('emp',IC.user,'Employees','<button class="btn btn-s btn-xs" onclick="event.stopPropagation();closeFlyout(true);openEmpModal()">'+IC.plus+' Add</button>')}
+      <div style="margin:10px 0 0;padding:10px 16px 0;border-top:1px solid var(--bd)">
+        ${[...S.employees].sort((a,b)=>(b.active-a.active)||(b.isOwner-a.isOwner)).map(e=>`<div class="sbn-i" style="margin-left:-8px;margin-right:-8px" onclick="_hoverKind='';clearTimeout(_flyT);openEmployee(${e.id})" title="Open ${esc(e.name)}">
+          <span style="min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${e.active?'':'color:var(--t3)'}">${esc(e.name)}${e.isOwner?' <span style="font-size:10px;color:var(--p3)">Owner</span>':''}</span>
+          <span class="bdg ${e.active?'bdg-closed':'bdg-archived'}">${e.active?'Active':'Inactive'}</span>
+        </div>`).join('')}
+      </div>
+    </div>`;
+}
+// Jump to a section of the Labor page: 'lb' (the form), 'all' (all labor) or 'emp' (employees)
+window.lbGo = (key='lb') => {
+  _hoverKind=''; clearTimeout(_flyT);
+  _lbRowOn=key;
+  if(S.view!=='labor'){ nav('labor'); setTimeout(()=>lbGo(key),80); return; }
+  const ct=document.getElementById('content'), el=ct.querySelector('[data-anchor="'+key+'"]'); if(!el) return;
+  const top=el.getBoundingClientRect().top-ct.getBoundingClientRect().top+ct.scrollTop-14;
+  _sbnLockUntil=Date.now()+650;
+  document.querySelectorAll('#subbar [data-lbrow]').forEach(i=>i.classList.toggle('on',i.dataset.lbrow===key));
+  ct.scrollTo({top:Math.max(0,top),behavior:'smooth'});
+  if(key==='lb') setTimeout(()=>document.getElementById('lb_hours')?.focus({preventScroll:true}),400);
+};
 
 let _empFrom='', _empTo='';
 
@@ -5625,9 +5763,16 @@ function mkEmployeeDetail(){
   }
   jobData.sort((a,b)=>(b.workedDates[b.workedDates.length-1]||'').localeCompare(a.workedDates[a.workedDates.length-1]||''));
 
-  const grandHrs=jobData.reduce((s,j)=>s+j.totalReg,0);
+  // General (no-job) hours: the part of each logged day not allocated to a job
+  const genDays=(_lbDays||[]).filter(x=>String(x.employeeId)===snapId&&(!_empFrom||x.date>=_empFrom)&&(!_empTo||x.date<=_empTo))
+    .map(x=>({date:x.date,hrs:_lbSplit(x).general,purpose:x.generalPurpose||''})).filter(x=>x.hrs>0).sort((a,b)=>b.date.localeCompare(a.date));
+  const genHrs=genDays.reduce((s,x)=>s+x.hrs,0);
+  const genRate=e.isOwner?null:(e.rate??null);
+  const genPay=genRate!=null?genHrs*genRate:null;
+
+  const grandHrs=jobData.reduce((s,j)=>s+j.totalReg,0)+genHrs;
   const grandCons=jobData.reduce((s,j)=>s+j.totalCons,0);
-  const grandPay=jobData.reduce((s,j)=>s+(j.pay??0),0);
+  const grandPay=jobData.reduce((s,j)=>s+(j.pay??0),0)+(genPay??0);
   const hasConsHrs=jobData.some(j=>j.totalCons>0);
   const isPeriod=_empFrom||_empTo;
 
@@ -5646,7 +5791,7 @@ function mkEmployeeDetail(){
   const d=document.createElement('div');
   d.innerHTML=`
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">${cards.join('')}</div>
-    ${jobData.length===0?`
+    ${jobData.length===0&&genHrs===0?`
       <div class="card" style="padding:48px;text-align:center;color:var(--t3)">
         <div style="font-size:15px;font-weight:500;color:var(--t2);margin-bottom:4px">No hours recorded${isPeriod?' in this period':''}</div>
         ${isPeriod?`<button class="btn btn-g btn-sm" style="margin-top:8px" onclick="empClearPeriod()">Show all time</button>`:'<div style="font-size:13px">Hours will appear here once logged on jobs.</div>'}
@@ -5666,6 +5811,14 @@ function mkEmployeeDetail(){
               <td style="font-family:var(--fn);font-weight:600">${_hr(j.totalReg)} hr</td>
               ${hasConsHrs?`<td style="font-family:var(--fn);color:var(--p2)">${j.totalCons>0?_hr(j.totalCons)+' hr':'<span style="color:var(--t3)">—</span>'}</td>`:''}
               ${!e.isOwner?`<td style="font-family:var(--fn);color:var(--t3)">${j.rate!=null?'$'+j.rate+'/hr':'—'}</td><td style="font-family:var(--fn);font-weight:600;color:var(--ok)">${j.pay!=null?fmt(j.pay):'—'}</td>`:''}
+            </tr>`).join('')}
+            ${genDays.map(g=>`<tr style="cursor:pointer" onclick="openLaborLog('${g.date}','${esc(snapId)}')" title="Open this day">
+              <td style="text-align:left"><div style="font-weight:600">General</div><div style="font-size:11px;color:var(--t3)">${g.purpose?esc(g.purpose):'No purpose entered'}</div></td>
+              <td><span class="bdg bdg-archived">General</span></td>
+              <td style="text-align:left;white-space:nowrap;color:var(--t2)">${fmtShort(g.date)}</td>
+              <td style="font-family:var(--fn);font-weight:600">${_hr(g.hrs)} hr</td>
+              ${hasConsHrs?'<td><span style="color:var(--t3)">—</span></td>':''}
+              ${!e.isOwner?`<td style="font-family:var(--fn);color:var(--t3)">${genRate!=null?'$'+genRate+'/hr':'—'}</td><td style="font-family:var(--fn);font-weight:600;color:var(--ok)">${genRate!=null?fmt(g.hrs*genRate):'—'}</td>`:''}
             </tr>`).join('')}
             <tr class="lt-tot">
               <td colspan="3" style="text-align:left">Total${isPeriod?' (filtered)':''}</td>
@@ -5688,6 +5841,7 @@ function _empCalHtml(e){
   const snap=e.isOwner?'kevin':String(e.id);
   const worked=new Set();      // days this person has hours, shown as a dot
   S.clients.forEach(c=>{ const h=c.laborHours?.[snap]; if(h) for(const [d,v] of Object.entries(h)) if((+(v?.reg??v??0))>0||(+(v?.cons??0))>0) worked.add(d); });
+  (_lbDays||[]).forEach(x=>{ if(String(x.employeeId)===snap&&_lbSplit(x).general>0) worked.add(x.date); });
   const [Y,M]=(_empCalMonth||(_empFrom||td()).slice(0,7)).split('-').map(Number);
   const gridStart=new Date(Y,M-1,1-new Date(Y,M-1,1).getDay());
   const lo=_empFrom, hi=_empTo, today=td();
@@ -5717,7 +5871,14 @@ window.empCalNav=delta=>{
   renderSubbar();
 };
 (function bindEmpCal(){
-  let drag=null;
+  let drag=null, lastWheel=0;
+  // Scroll over the calendar: down = next month, up = previous month (throttled so one flick moves one month)
+  document.addEventListener('wheel',e=>{
+    if(!e.target.closest?.('.ecal')) return;
+    e.preventDefault();
+    const now=Date.now(); if(now-lastWheel<250||!e.deltaY) return;
+    lastWheel=now; empCalNav(e.deltaY>0?1:-1);
+  },{passive:false});
   const paint=()=>{
     const lo=drag.a<drag.b?drag.a:drag.b, hi=drag.a<drag.b?drag.b:drag.a;
     document.querySelectorAll('.ecal-d').forEach(el=>{ const d=el.dataset.d;
@@ -5742,14 +5903,16 @@ function _empPanelHtml(){
   const e=S.employees.find(x=>x.id===S.openEmployee);
   if(!e) return '';
   const isPeriod=_empFrom||_empTo;
-  return `<div class="sbn-hd"><div class="t">${esc(e.name)}</div>
-      <div class="s">${e.isOwner?'Owner':(e.rate!=null?'$'+e.rate+'/hr':'No hourly rate')} · ${e.active?'Active':'Inactive'}</div>
+  return `<div class="sbn-hd"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+        <div style="min-width:0"><div class="t">${esc(e.name)}</div>
+        <div class="s">${e.isOwner?'Owner':(e.rate!=null?'$'+e.rate+'/hr':'No hourly rate')} · ${e.active?'Active':'Inactive'}</div></div>
+        ${e.isOwner?'':`<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+          <button class="btn btn-s btn-xs" onclick="openEmpEdit(${e.id})">${IC.edit} Edit</button>
+          <button class="btn btn-g btn-xs" onclick="togEmpAct(${e.id})">${e.active?'Set Inactive':'Set Active'}</button>
+        </div>`}
+      </div>
       <div class="sbn-back" onclick="goNav('labor')">← All labor</div></div>
     <div style="flex:1;min-height:0;overflow-y:auto;padding:4px 16px 14px">
-      ${e.isOwner?'':`<div style="display:flex;gap:6px;margin-bottom:12px">
-        <button class="btn btn-s btn-xs" onclick="openEmpEdit(${e.id})">${IC.edit} Edit</button>
-        <button class="btn btn-g btn-xs" onclick="togEmpAct(${e.id})">${e.active?'Set Inactive':'Set Active'}</button>
-      </div>`}
       ${_empCalHtml(e)}
       <div style="margin:18px -16px 0;padding:12px 16px 0;border-top:1px solid var(--bd)">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -6328,6 +6491,8 @@ async function _refreshFromDB(){
   }catch(e){ console.warn('Nav refresh failed:',e); }
 }
 window.nav = v => { S.view=v; if(v==='client'||v==='invoice'||v==='statement'){ DB.updatePresence(S.openClient); }else{ DB.updatePresence(null); } window.electronAPI?.notifyViewChanged?.(v); renderPage(); _refreshFromDB(); };
+// Open a client and scroll straight to its Labor section
+window.openClientLabor = id => { openClient(id); if(!SUPER_SIDEBAR){ S.openSecs.add('labor'); renderPage(); } setTimeout(()=>subbarGo('labor'),120); };
 window.openClient = id => { S.openClient=id; S.view='client'; S.openSecs=new Set(['info']); DB.updatePresence(id); renderPage(); };
 window.openEmployee = id => { S.openEmployee=id; nav('employee'); };
 window.setStatus = (id,v) => { const c=S.clients.find(x=>x.id===id); if(c){ c.status=v; DB.upsertClient(c); renderTopbar(); } };

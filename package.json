@@ -1,6 +1,6 @@
 {
   "name": "integrity-bookkeeping",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Bookkeeping app for Integrity Estate Liquidation",
   "author": "Open Door Media",
   "main": "main.js",

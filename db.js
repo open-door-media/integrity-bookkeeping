@@ -71,6 +71,9 @@ const DB = (() => {
       payable_same_billing_addr: !!c.payableSameBillingAddr,
       start_date: c.startDate || '',
       notes: c.notes || '',
+      // entry_details (garage codes, keybox, key color…) is only sent once the column exists or has a value,
+      // so every other client save keeps working until the column has been added in Supabase
+      ...((c.entryDetails || c._hasEntryCol) ? { entry_details: c.entryDetails || '' } : {}),
       status: c.status || 'agreement',
       flat_rate: c.flatRate || 0,
       flat_rate_inv_status: c.flatRateInvStatus || 'uninvoiced',
@@ -143,6 +146,8 @@ const DB = (() => {
       payableSameBillingAddr: row.payable_same_billing_addr,
       startDate: row.start_date,
       notes: row.notes,
+      entryDetails: row.entry_details || '',
+      _hasEntryCol: 'entry_details' in row,
       status: row.status,
       flatRate: row.flat_rate,
       flatRateInvStatus: row.flat_rate_inv_status,
@@ -794,10 +799,23 @@ const DB = (() => {
   }
 
   // ── Clients ───────────────────────────────────────────────────────────────
+  const _clientWriteAt = {};
+  let _lastClientErr = '';
+  function wroteClientRecently(id, ms = 10000) {
+    return Date.now() - (_clientWriteAt[id] || 0) < ms;
+  }
   async function upsertClient(c) {
     if (!_sb) return;
+    _clientWriteAt[c.id] = Date.now();
     const { error } = await _sb.from('clients').upsert(clientToRow(c));
-    if (error) console.error('upsertClient:', error.message);
+    if (error) {
+      console.error('upsertClient:', error.message);
+      // Don't fail silently — an unsaved client (e.g. status) reverts on the next reload
+      if (error.message !== _lastClientErr && typeof alert === 'function') {
+        _lastClientErr = error.message;
+        alert('A client change could NOT be saved to the database and will be lost on reload.\n\nError: ' + error.message);
+      }
+    }
   }
 
   async function deleteClient(id) {
@@ -877,7 +895,8 @@ const DB = (() => {
     const row = paymentToRow(p);
     if (!row.id) delete row.id;
     const { data, error } = await _sb.from('payments').upsert(row).select('id').single();
-    if (error) { console.error('upsertPayment:', error.message); return null; }
+    if (error) { console.error('upsertPayment:', error.message); p._saveError = error.message; return null; }
+    delete p._saveError;
     if (data?.id && !p.id) p.id = data.id;
     return p.id;
   }
@@ -1130,7 +1149,235 @@ const DB = (() => {
     }
   }
 
+  // ── Leads (own table; independent of everything above) ───────────────────
+  function rowToLead(row) {
+    return {
+      id: row.id,
+      name: row.name || '',
+      address: row.address || '',
+      phone: row.phone || '',
+      email: row.email || '',
+      nextTask: row.next_task || '',
+      notes: row.notes || '',
+      active: row.active !== false,
+      status: row.status || 'lead',
+      clientId: row.client_id ?? null,
+    };
+  }
+  function leadToRow(l) {
+    return {
+      id: l.id,
+      name: l.name || '',
+      address: l.address || '',
+      phone: l.phone || '',
+      email: l.email || '',
+      next_task: l.nextTask || '',
+      notes: l.notes || '',
+      active: l.active !== false,
+      status: l.status || 'lead',
+      client_id: l.clientId ?? null,
+      updated_at: new Date().toISOString(),
+    };
+  }
+  // Failure here must never affect the rest of the app: log and return an empty list.
+  async function loadLeads() {
+    _autoInit(); if (!_sb) return [];
+    const { data, error } = await _sb.from('leads').select('*').eq('archived', false).order('id');
+    if (error) { console.warn('loadLeads:', error.message); return []; }
+    return (data || []).map(rowToLead);
+  }
+  // Unlike the older upserts, these THROW so callers (conversion) can stop on failure.
+  async function upsertLead(l) {
+    _autoInit(); if (!_sb) throw new Error('Not connected');
+    const { error } = await _sb.from('leads').upsert(leadToRow(l));
+    if (error) throw new Error(error.message);
+  }
+  async function deleteLead(id) {
+    _autoInit(); if (!_sb) throw new Error('Not connected');
+    const { error } = await _sb.from('leads').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+  }
+  // Used by lead conversion to confirm a row was really written before the lead is removed.
+  async function rowExists(table, id) {
+    _autoInit(); if (!_sb) throw new Error('Not connected');
+    const { data, error } = await _sb.from(table).select('id').eq('id', id).limit(1);
+    if (error) throw new Error(error.message);
+    return (data || []).length === 1;
+  }
+  // Own channel, so leads can never interfere with the main realtime subscription.
+  let _leadsChannel = null;
+  function subscribeToLeads(onEvent) {
+    _autoInit(); if (!_sb) return;
+    if (_leadsChannel) { try { _sb.removeChannel(_leadsChannel); } catch(_){} _leadsChannel = null; }
+    _leadsChannel = _sb.channel('leads-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' },
+        p => onEvent(p.eventType, p.new, p.old))
+      .subscribe();
+  }
+
+  // ── Daily mileage log (written by the mobile app; the desktop only reads it) ──
+  function _parseAllocs(v) {
+    return Array.isArray(v) ? v.map(a => ({ clientId: String(a.clientId), miles: Number(a.miles) || 0 })) : [];
+  }
+  function rowToMileageDay(row) {
+    return {
+      date: String(row.date),
+      odometerStart: row.odometer_start != null ? Number(row.odometer_start) : null,
+      odometerEnd: row.odometer_end != null ? Number(row.odometer_end) : null,
+      totalMiles: Number(row.total_miles) || 0,
+      status: row.status === 'submitted' ? 'submitted' : 'draft',
+      tripActive: row.trip_active === true,
+      allocations: _parseAllocs(row.allocations),
+      submittedAllocations: _parseAllocs(row.submitted_allocations),
+      generalPurpose: String(row.general_purpose ?? ''),
+    };
+  }
+  // Failure (e.g. migration not run yet) must never affect the rest of the app: return null so the page can say so.
+  async function loadMileageDays() {
+    _autoInit(); if (!_sb) return null;
+    const { data, error } = await _sb.from('mileage_days').select('*').order('date', { ascending: false });
+    if (error) { console.warn('loadMileageDays:', error.message); return null; }
+    return (data || []).map(rowToMileageDay);
+  }
+  // Writes below THROW on failure so a half-finished submit is never reported as saved.
+  // They mirror what the mobile app's submit does (same tables, same shapes).
+  async function upsertMileageEntryStrict(clientId, date, miles) {
+    _autoInit(); if (!_sb) throw new Error('Not connected');
+    const { error } = await _sb.from('mileage_entries').upsert({ client_id: clientId, date, miles });
+    if (error) throw new Error(error.message);
+  }
+  async function replaceGeneralMileage(date, miles, purpose) {
+    _autoInit(); if (!_sb) throw new Error('Not connected');
+    const del = await _sb.from('general_mileage').delete().eq('date', date);
+    if (del.error) throw new Error(del.error.message);
+    if (miles > 0) {
+      const ins = await _sb.from('general_mileage').insert({
+        id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
+        date, miles, purpose, updated_at: new Date().toISOString(),
+      });
+      if (ins.error) throw new Error(ins.error.message);
+    }
+  }
+  async function saveMileageDay(d) {
+    _autoInit(); if (!_sb) throw new Error('Not connected');
+    const { error } = await _sb.from('mileage_days').upsert({
+      date: d.date,
+      odometer_start: d.odometerStart,
+      odometer_end: d.odometerEnd,
+      total_miles: d.totalMiles,
+      status: d.status,
+      trip_active: false,
+      allocations: d.allocations,
+      submitted_allocations: d.submittedAllocations,
+      general_purpose: d.generalPurpose,
+      submitted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw new Error(error.message);
+  }
+  async function deleteMileageDay(date) {
+    _autoInit(); if (!_sb) throw new Error('Not connected');
+    const { error } = await _sb.from('mileage_days').delete().eq('date', date);
+    if (error) throw new Error(error.message);
+  }
+  // ── Daily labor log (written by the mobile app; same approach as mileage above) ──
+  function _parseHourAllocs(v) {
+    return Array.isArray(v) ? v.map(a => ({ clientId: String(a.clientId), hours: Number(a.hours) || 0 })) : [];
+  }
+  function rowToLaborDay(row) {
+    return {
+      date: String(row.date),
+      employeeId: String(row.employee_id),
+      hours: Number(row.hours) || 0,
+      status: row.status === 'submitted' ? 'submitted' : 'draft',
+      allocations: _parseHourAllocs(row.allocations),
+      submittedAllocations: _parseHourAllocs(row.submitted_allocations),
+      generalPurpose: String(row.general_purpose ?? ''),
+    };
+  }
+  // Returns null on failure (e.g. migration not run) so the page can say so without affecting the app.
+  async function loadLaborDays() {
+    _autoInit(); if (!_sb) return null;
+    const { data, error } = await _sb.from('labor_days').select('*').order('date', { ascending: false });
+    if (error) { console.warn('loadLaborDays:', error.message); return null; }
+    return (data || []).map(rowToLaborDay);
+  }
+  async function upsertLaborEntryStrict(clientId, snapId, date, reg, cons) {
+    _autoInit(); if (!_sb) throw new Error('Not connected');
+    const { error } = await _sb.from('labor_entries').upsert({ client_id: clientId, snap_id: String(snapId), date, reg, cons });
+    if (error) throw new Error(error.message);
+  }
+  async function replaceGeneralLabor(date, employeeId, hours, rate, purpose) {
+    _autoInit(); if (!_sb) throw new Error('Not connected');
+    const del = await _sb.from('general_labor').delete().eq('date', date).eq('employee_id', employeeId);
+    if (del.error) throw new Error(del.error.message);
+    if (hours > 0) {
+      const ins = await _sb.from('general_labor').insert({
+        id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
+        date, employee_id: employeeId, hours, rate, purpose, updated_at: new Date().toISOString(),
+      });
+      if (ins.error) throw new Error(ins.error.message);
+    }
+  }
+  async function saveLaborDay(d) {
+    _autoInit(); if (!_sb) throw new Error('Not connected');
+    const { error } = await _sb.from('labor_days').upsert({
+      date: d.date,
+      employee_id: d.employeeId,
+      hours: d.hours,
+      status: d.status,
+      allocations: d.allocations,
+      submitted_allocations: d.submittedAllocations,
+      general_purpose: d.generalPurpose,
+      submitted_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw new Error(error.message);
+  }
+  async function deleteLaborDay(date, employeeId) {
+    _autoInit(); if (!_sb) throw new Error('Not connected');
+    const { error } = await _sb.from('labor_days').delete().eq('date', date).eq('employee_id', employeeId);
+    if (error) throw new Error(error.message);
+  }
+  let _laborLogChannel = null;
+  function subscribeToLaborLog(onEvent) {
+    _autoInit(); if (!_sb) return;
+    if (_laborLogChannel) { try { _sb.removeChannel(_laborLogChannel); } catch(_){} _laborLogChannel = null; }
+    _laborLogChannel = _sb.channel('labor-log-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'labor_days' }, () => onEvent())
+      .subscribe();
+  }
+
+  // Own channel, same reasoning as leads.
+  let _mileageLogChannel = null;
+  function subscribeToMileageLog(onEvent) {
+    _autoInit(); if (!_sb) return;
+    if (_mileageLogChannel) { try { _sb.removeChannel(_mileageLogChannel); } catch(_){} _mileageLogChannel = null; }
+    _mileageLogChannel = _sb.channel('mileage-log-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mileage_days' }, () => onEvent())
+      .subscribe();
+  }
+
   return {
+    loadLaborDays,
+    subscribeToLaborLog,
+    upsertLaborEntryStrict,
+    replaceGeneralLabor,
+    saveLaborDay,
+    deleteLaborDay,
+    loadMileageDays,
+    subscribeToMileageLog,
+    upsertMileageEntryStrict,
+    replaceGeneralMileage,
+    saveMileageDay,
+    deleteMileageDay,
+    rowToLead,
+    loadLeads,
+    upsertLead,
+    deleteLead,
+    rowExists,
+    subscribeToLeads,
+    wroteClientRecently,
     init,
     isReady,
     loadAll,

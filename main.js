@@ -4,6 +4,11 @@ const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
 
+// ─── Gmail SMTP ───────────────────────────────────────────────────────────────
+// The address is not secret. The App Password is NOT stored in the code: it lives in a local file on each
+// computer (userData/gmail.config.json), entered in Settings → Business Identity → Email.
+const GMAIL_USER = 'kevin@integritykansascity.com';
+
 // ─── Auto-update ─────────────────────────────────────────────────────────────
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
@@ -30,6 +35,10 @@ const DATA_FILE   = path.join(app.getPath('userData'), 'integrity-data.json');
 const LOGO_DIR    = path.join(app.getPath('userData'), 'assets');
 const DOCS_DIR    = path.join(app.getPath('userData'), 'documents');
 const CONFIG_FILE = path.join(app.getPath('userData'), 'supabase.config.json');
+const GMAIL_FILE  = path.join(app.getPath('userData'), 'gmail.config.json');
+const loadGmailPassword = () => {
+  try { return JSON.parse(fs.readFileSync(GMAIL_FILE, 'utf8')).password || ''; } catch (_) { return ''; }
+};
 
 // ─── Window ──────────────────────────────────────────────────────────────────
 let mainWindow;
@@ -41,6 +50,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'Integrity Bookkeeping',
+    backgroundColor: '#f7f5f2',   // matches the startup animation, so no white flash before it
     icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -175,6 +185,15 @@ ipcMain.handle('save-logo', (_event, dataUrl, filename) => {
   return `file://${dest.replace(/\\/g, '/')}`;
 });
 
+// The Integrity logo that ships with the app. Returned as a data URL so it also works inside the temporary
+// HTML files used for PDF / email (a relative path would not resolve there).
+ipcMain.handle('get-brand-logo', () => {
+  try {
+    const buf = fs.readFileSync(path.join(__dirname, 'assets', 'integrity-logo-sbs.png'));
+    return 'data:image/png;base64,' + buf.toString('base64');
+  } catch (e) { return null; }
+});
+
 ipcMain.handle('load-logo-path', () => {
   // Return the path of the saved logo if it exists
   for (const ext of ['.png', '.svg', '.jpg', '.jpeg', '.webp']) {
@@ -223,9 +242,19 @@ ipcMain.handle('save-supabase-config', (_event, config) => {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config), 'utf8');
 });
 
+// ─── IPC: Gmail App Password (local file only; the renderer can only ask if one is saved, never read it) ──
+ipcMain.handle('has-gmail-password', () => !!loadGmailPassword());
+ipcMain.handle('save-gmail-password', (_event, password) => {
+  fs.mkdirSync(path.dirname(GMAIL_FILE), { recursive: true });
+  fs.writeFileSync(GMAIL_FILE, JSON.stringify({ password: String(password || '').trim() }), 'utf8');
+  return true;
+});
+
 // ─── IPC: Send email with PDF attachment ─────────────────────────────────────
-ipcMain.handle('send-email-pdf', async (_event, { to, subject, body, html, filename, appPassword }) => {
+ipcMain.handle('send-email-pdf', async (_event, { to, subject, body, html, filename }) => {
   const tmpPath = path.join(app.getPath('temp'), '_integrity_email.html');
+  const gmailPassword = loadGmailPassword();
+  if (!gmailPassword) return { success: false, error: 'Gmail App Password not set. Go to Settings → Business Identity → Email to add it.' };
   try {
     fs.writeFileSync(tmpPath, html, 'utf8');
     const win = new BrowserWindow({ show: false, skipTaskbar: true, parent: mainWindow, webPreferences: { javascript: false } });
@@ -240,10 +269,10 @@ ipcMain.handle('send-email-pdf', async (_event, { to, subject, body, html, filen
 
     const transporter = nodemailer.createTransport({
       service: 'gmail',
-      auth: { user: 'kevin@integritykansascity.com', pass: appPassword },
+      auth: { user: GMAIL_USER, pass: gmailPassword },
     });
     await transporter.sendMail({
-      from: '"Integrity Estate Liquidation" <kevin@integritykansascity.com>',
+      from: `"Integrity Estate Liquidation" <${GMAIL_USER}>`,
       to,
       subject,
       text: body,

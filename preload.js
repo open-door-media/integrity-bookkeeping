@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveLogo: (dataUrl, filename) => ipcRenderer.invoke('save-logo', dataUrl, filename),
   // loadLogoPath: returns file:// path of previously saved logo, or null
   loadLogoPath: ()        => ipcRenderer.invoke('load-logo-path'),
+  // getBrandLogo: the bundled Integrity logo as a data URL (used on invoices and statements)
+  getBrandLogo: ()        => ipcRenderer.invoke('get-brand-logo'),
 
   // ── Folder picker ───────────────────────────────────────────────────────
   pickFolder: ()          => ipcRenderer.invoke('pick-folder'),
@@ -28,6 +30,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   printDirect: (html) => ipcRenderer.invoke('print-direct', { html }),
   // sendEmailPdf: generates PDF from HTML and sends it via Gmail SMTP with nodemailer
   sendEmailPdf: (opts) => ipcRenderer.invoke('send-email-pdf', opts),
+  // Gmail App Password lives in a local file; the page can only check whether one is saved or replace it
+  hasGmailPassword:  ()   => ipcRenderer.invoke('has-gmail-password'),
+  saveGmailPassword: (pw) => ipcRenderer.invoke('save-gmail-password', pw),
 
   // ── Documents ───────────────────────────────────────────────────────────
   saveDoc:   (dataUrl, originalName) => ipcRenderer.invoke('save-doc', dataUrl, originalName),
